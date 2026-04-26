@@ -1577,7 +1577,14 @@ function App() {
         </button>
         <button
           type="button"
-          className={isBetSlipOpen ? 'nav navBottom active' : 'nav navBottom'}
+          className={[
+            'nav',
+            'navBottom',
+            isBetSlipOpen ? 'active' : '',
+            slipLegs.length > 0 ? 'navBetSlipPending' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           onClick={() => setIsBetSlipOpen((v) => !v)}
           title="Open bet slip"
           aria-label="Open bet slip"

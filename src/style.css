@@ -118,6 +118,24 @@ html {
   height: 66px;
 }
 
+/* Bet slip: draw attention while picks are in the slip but not placed yet */
+.nav.navBetSlipPending {
+  animation: navBetSlipPendingGlow 1.85s ease-in-out infinite;
+}
+
+.nav.navBetSlipPending.active {
+  animation-name: navBetSlipPendingGlowActive;
+  animation-duration: 2.1s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav.navBetSlipPending {
+    animation: none;
+    border-color: #4c8dff;
+    box-shadow: 0 0 0 1px rgba(43, 227, 191, 0.35), 0 4px 14px rgba(38, 126, 255, 0.25);
+  }
+}
+
 .logoBtn[data-label]::after,
 .nav[data-label]::after {
   content: attr(data-label);
@@ -1926,6 +1944,30 @@ input:focus-visible {
   0% { box-shadow: 0 0 0 0 rgba(38, 126, 255, 0.7); }
   50% { box-shadow: 0 0 20px 6px rgba(38, 126, 255, 0.45); }
   100% { box-shadow: 0 0 0 0 rgba(38, 126, 255, 0); }
+}
+
+@keyframes navBetSlipPendingGlow {
+  0%,
+  100% {
+    border-color: #3a5085;
+    box-shadow: 0 0 0 0 rgba(43, 227, 191, 0.35), 0 4px 12px rgba(15, 25, 55, 0.4);
+  }
+
+  50% {
+    border-color: #58c9f7;
+    box-shadow: 0 0 0 6px rgba(43, 227, 191, 0.12), 0 0 22px rgba(38, 126, 255, 0.42);
+  }
+}
+
+@keyframes navBetSlipPendingGlowActive {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.12), 0 4px 14px rgba(15, 25, 55, 0.35);
+  }
+
+  50% {
+    box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.14), 0 0 20px rgba(255, 255, 255, 0.22);
+  }
 }
 
 @keyframes liveIndicatorPulse {
