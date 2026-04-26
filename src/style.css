@@ -1989,7 +1989,25 @@ input:focus-visible {
 
 .historyCardStake,
 .historyCardOdds {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+  gap: 2px;
+}
+
+.historyCardStake small,
+.historyCardOdds small {
+  color: #90a4d6;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.historyCardStake strong,
+.historyCardOdds strong {
   color: #eaf0ff;
+  font-size: 16px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -2007,10 +2025,19 @@ input:focus-visible {
   gap: 10px;
 }
 
+.historyCardMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .historyCardMeta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: grid;
+  gap: 4px;
+  border: 1px solid #2d3b63;
+  border-radius: 10px;
+  background: #10172f;
+  padding: 9px 10px;
   color: #9fb0d8;
 }
 
@@ -2026,20 +2053,40 @@ input:focus-visible {
 .historyLegRow {
   border: 1px solid #2d3b63;
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 9px 10px;
   background: #10172f;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
 }
 
+.historyLegText {
+  min-width: 0;
+}
+
+.historyLegText strong {
+  display: block;
+  line-height: 1.25;
+}
+
 .historyLegRow small {
+  display: block;
+  margin-top: 3px;
   color: #8fa2d3;
 }
 
 .historyLegOdds {
   color: #dbe6ff;
+  font-size: 20px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 840px) {
+  .historyCardMetaGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .walletHero {

@@ -238,6 +238,24 @@ function App() {
     }
   }, []);
 
+  const loadMyBets = useCallback(async () => {
+    if (!getToken()) {
+      setMyBets([]);
+      return;
+    }
+
+    try {
+      const res = await api.get<BetDto[]>('/bet/mine');
+      const raw = ensureArray<BetDto>(res.data);
+      setMyBets(raw.map(normalizeBetDto));
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        localStorage.removeItem('token');
+        setToken(null);
+      }
+    }
+  }, []);
+
   const loadProfile = useCallback(async () => {
     if (!getToken()) {
       setProfile(null);
@@ -325,21 +343,15 @@ function App() {
 
   async function loadInitialData() {
     setIsEventsLoading(true);
-    const [eventsRes, betsRes] = await Promise.allSettled([
+    const eventsRes = await Promise.allSettled([
       api.get<SportEventDto[]>('/sport/active'),
-      api.get<BetDto[]>('/bet/mine'),
     ]);
 
-    if (eventsRes.status === 'fulfilled') {
-      setEvents(ensureArray<SportEventDto>(eventsRes.value.data));
+    if (eventsRes[0].status === 'fulfilled') {
+      setEvents(ensureArray<SportEventDto>(eventsRes[0].value.data));
     }
 
-    if (betsRes.status === 'fulfilled') {
-      const raw = ensureArray<BetDto>(betsRes.value.data);
-      setMyBets(raw.map(normalizeBetDto));
-    }
-
-    await Promise.all([loadWallet(), loadProfile()]);
+    await Promise.all([loadWallet(), loadProfile(), loadMyBets()]);
     setIsEventsLoading(false);
   }
 
@@ -396,7 +408,14 @@ function App() {
     connection.on(realtimeEvents.betAccepted, (bet: BetDto) => {
       setMyBets((prev) => {
         const normalized = normalizeBetDto(bet);
-        return prev.some((b) => b.id === normalized.id) ? prev : [normalized, ...prev];
+        const existingIdx = prev.findIndex((b) => b.id === normalized.id);
+        if (existingIdx === -1) {
+          return [normalized, ...prev];
+        }
+
+        const next = [...prev];
+        next[existingIdx] = { ...next[existingIdx], ...normalized };
+        return next;
       });
       setStatus('Bet accepted');
       void refreshWallet();
@@ -480,6 +499,19 @@ function App() {
 
     void loadWallet();
   }, [activeScreen, token, loadWallet]);
+
+  useEffect(() => {
+    if (!token || activeScreen !== 'history') {
+      return;
+    }
+
+    void loadMyBets();
+    const interval = window.setInterval(() => {
+      void loadMyBets();
+    }, 15000);
+
+    return () => window.clearInterval(interval);
+  }, [activeScreen, token, loadMyBets]);
 
   useEffect(() => {
     if (!token || activeScreen !== 'profile') {
@@ -1911,24 +1943,32 @@ function App() {
                         >
                           <span className="historyCardDate">{new Date(bet.createdAt).toLocaleString()}</span>
                           <strong className={`historyCardStatus status-${mapStatusLabel(bet.status).toLowerCase()}`}>{mapStatusLabel(bet.status)}</strong>
-                          <span className="historyCardStake">${Number(bet.stake).toFixed(2)}</span>
-                          <span className="historyCardOdds">x{bet.combinedOdds.toFixed(2)}</span>
+                          <span className="historyCardStake">
+                            <small>Stake</small>
+                            <strong>${Number(bet.stake).toFixed(2)}</strong>
+                          </span>
+                          <span className="historyCardOdds">
+                            <small>Odds</small>
+                            <strong>x{bet.combinedOdds.toFixed(2)}</strong>
+                          </span>
                           <span className="historyCardChevron" aria-hidden="true">{isExpanded ? '−' : '+'}</span>
                         </button>
                         {isExpanded && (
                           <div className="historyCardBody">
-                            <div className="historyCardMeta">
-                              <span>Potential payout</span>
-                              <strong>${Number(bet.potentialPayout).toFixed(2)}</strong>
-                            </div>
-                            <div className="historyCardMeta">
-                              <span>Settled payout</span>
-                              <strong>{bet.settledPayout != null ? `$${Number(bet.settledPayout).toFixed(2)}` : '—'}</strong>
+                            <div className="historyCardMetaGrid">
+                              <div className="historyCardMeta">
+                                <span>Potential payout</span>
+                                <strong>${Number(bet.potentialPayout).toFixed(2)}</strong>
+                              </div>
+                              <div className="historyCardMeta">
+                                <span>Settled payout</span>
+                                <strong>{bet.settledPayout != null ? `$${Number(bet.settledPayout).toFixed(2)}` : '—'}</strong>
+                              </div>
                             </div>
                             <div className="historyLegs">
                               {(bet.legs ?? []).map((leg) => (
                                 <div key={`${bet.id}-${leg.eventExternalId}-${leg.selection}`} className="historyLegRow">
-                                  <div>
+                                  <div className="historyLegText">
                                     <strong>{leg.homeTeam} vs {leg.awayTeam}</strong>
                                     <small>{formatBetLegSelection(leg)}</small>
                                   </div>
