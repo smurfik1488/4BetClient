@@ -16,9 +16,18 @@ import type {
 } from './types';
 import { realtimeEvents } from './realtimeEvents';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+  ?? 'https://4betapi-d7bdaga2fbecdbf4.polandcentral-01.azurewebsites.net/api';
+const API_ORIGIN = (() => {
+  try {
+    return new URL(API_BASE_URL).origin;
+  } catch {
+    return '';
+  }
+})();
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL
-    ?? 'https://4betapi-d7bdaga2fbecdbf4.polandcentral-01.azurewebsites.net/api',
+  baseURL: API_BASE_URL,
 });
 
 api.interceptors.request.use((config) => {
@@ -307,8 +316,9 @@ function App() {
   }
 
   async function connectRealtime(getDisposed: () => boolean, refreshWallet: () => Promise<void>) {
+    const hubUrl = API_ORIGIN ? `${API_ORIGIN}/matchHub` : '/matchHub';
     const connection = new signalR.HubConnectionBuilder()
-      .withUrl('/matchHub', {
+      .withUrl(hubUrl, {
         accessTokenFactory: () => token ?? '',
       })
       .withAutomaticReconnect()
@@ -2328,6 +2338,9 @@ function buildTeamFallbackLogo(name: string): string {
 function resolveTeamLogoSrc(logoUrl: string | null | undefined, teamName: string): string {
   const trimmed = logoUrl?.trim();
   if (trimmed) {
+    if (trimmed.startsWith('/api/') && API_ORIGIN) {
+      return `${API_ORIGIN}${trimmed}`;
+    }
     return trimmed;
   }
   return buildTeamFallbackLogo(teamName);
