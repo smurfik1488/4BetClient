@@ -93,6 +93,7 @@ function App() {
   const [isEventsLoading, setIsEventsLoading] = useState(true);
   const [myBets, setMyBets] = useState<BetDto[]>([]);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [isWalletLoading, setIsWalletLoading] = useState(true);
   const [slipLegs, setSlipLegs] = useState<BetSlipLeg[]>([]);
   const [stake, setStake] = useState('10');
   const [betBusy, setBetBusy] = useState(false);
@@ -213,8 +214,10 @@ function App() {
   );
 
   const loadWallet = useCallback(async () => {
+    setIsWalletLoading(true);
     if (!getToken()) {
       setWalletBalance(null);
+      setIsWalletLoading(false);
       return;
     }
 
@@ -227,6 +230,8 @@ function App() {
         setToken(null);
       }
       setWalletBalance(null);
+    } finally {
+      setIsWalletLoading(false);
     }
   }, []);
 
@@ -1586,7 +1591,11 @@ function App() {
           <div className="topControls">
             <div className="balanceChip">
               <span>Available Balance</span>
-              <strong>{walletBalance == null ? '—' : `$${walletBalance.toFixed(2)}`}</strong>
+              {isWalletLoading ? (
+                <strong className="balanceValueLoading" aria-live="polite" aria-label="Loading balance" />
+              ) : (
+                <strong>{walletBalance == null ? '—' : `$${walletBalance.toFixed(2)}`}</strong>
+              )}
             </div>
             <button className="depositBtn" onClick={openTopUpModal}>+ Deposit</button>
             <button type="button" className="userChip" onClick={() => setActiveScreen('profile')}>

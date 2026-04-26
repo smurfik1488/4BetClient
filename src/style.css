@@ -199,6 +199,16 @@ html {
   color: #a6b3d6;
 }
 
+.balanceValueLoading {
+  display: inline-block;
+  width: 68px;
+  height: 18px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #1b2442 20%, #2a3763 50%, #1b2442 80%);
+  background-size: 220% 100%;
+  animation: balanceLoadingSweep 1.1s ease-in-out infinite;
+}
+
 .depositBtn {
   background: linear-gradient(120deg, #2be3bf, #267eff);
   color: #fff;
@@ -1923,4 +1933,9 @@ input:focus-visible {
 @keyframes spinLoader {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+@keyframes balanceLoadingSweep {
+  from { background-position: 200% 0; }
+  to { background-position: -20% 0; }
 }
