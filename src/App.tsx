@@ -94,6 +94,7 @@ function App() {
   const [myBets, setMyBets] = useState<BetDto[]>([]);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [isWalletLoading, setIsWalletLoading] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState(() => Boolean(getToken()));
   const [slipLegs, setSlipLegs] = useState<BetSlipLeg[]>([]);
   const [stake, setStake] = useState('10');
   const [betBusy, setBetBusy] = useState(false);
@@ -238,9 +239,12 @@ function App() {
   const loadProfile = useCallback(async () => {
     if (!getToken()) {
       setProfile(null);
+      setAvatarDataUrl(null);
+      setIsProfileLoading(false);
       return;
     }
 
+    setIsProfileLoading(true);
     try {
       const res = await api.get<UserProfileDto>('/auth/profile');
       setProfile(res.data);
@@ -257,6 +261,8 @@ function App() {
         setToken(null);
       }
       setProfile(null);
+    } finally {
+      setIsProfileLoading(false);
     }
   }, []);
 
@@ -431,9 +437,11 @@ function App() {
   useEffect(() => {
     if (!token) {
       setIsEventsLoading(true);
+      setIsProfileLoading(false);
       return;
     }
 
+    setIsProfileLoading(true);
     let disposed = false;
     void loadInitialData();
     void connectRealtime(() => disposed, loadWallet);
@@ -887,6 +895,7 @@ function App() {
         }
 
         localStorage.setItem('token', jwt);
+        setIsProfileLoading(true);
         setToken(jwt);
         setStatus('Authorized');
       } else {
@@ -1124,6 +1133,7 @@ function App() {
     setProfileMessage(null);
     setProfileError(null);
     setAvatarDataUrl(null);
+    setIsProfileLoading(false);
     setStatus('Logged out');
   }
 
@@ -1600,23 +1610,38 @@ function App() {
             <div className="balanceChip">
               <span>Available Balance</span>
               {isWalletLoading ? (
-                <strong className="balanceValueLoading" aria-live="polite" aria-label="Loading balance" />
+                <strong className="balanceValuePending" aria-live="polite" aria-label="Loading balance">
+                  <span className="loadingSpinner loadingSpinner--compact" aria-hidden="true" />
+                </strong>
               ) : (
                 <strong>{walletBalance == null ? '—' : `$${walletBalance.toFixed(2)}`}</strong>
               )}
             </div>
             <button className="depositBtn" onClick={openTopUpModal}>+ Deposit</button>
             <button type="button" className="userChip" onClick={() => setActiveScreen('profile')}>
-              <span className="avatar">
-                {avatarDataUrl ? (
+              <span className="avatar" aria-busy={isProfileLoading && !profile}>
+                {isProfileLoading && !profile ? (
+                  <span className="avatarPending" aria-hidden="true">
+                    <span className="loadingSpinner loadingSpinner--avatar" />
+                  </span>
+                ) : avatarDataUrl ? (
                   <img src={avatarDataUrl} alt="User avatar" className="avatarImg" />
                 ) : (
                   displayUser.initials
                 )}
               </span>
               <div className="userMeta">
-                <strong className="userName">{displayUser.fullName}</strong>
-                <small>Premium Member</small>
+                <strong className={isProfileLoading && !profile ? 'userName userName--pendingLoad' : 'userName'}>
+                  {isProfileLoading && !profile ? (
+                    <span className="userNamePending" aria-label="Loading profile">
+                      <span className="userNamePendingLine" />
+                      <span className="userNamePendingLine userNamePendingLine--short" />
+                    </span>
+                  ) : (
+                    displayUser.fullName
+                  )}
+                </strong>
+                <small>{isProfileLoading && !profile ? 'Loading…' : 'Premium Member'}</small>
               </div>
             </button>
           </div>
@@ -1912,8 +1937,16 @@ function App() {
                 <h2>Profile</h2>
                 <div className="profileHeaderCard">
                   <div className="profileAvatarHero">
-                    <span className="profileAvatarWrap profileAvatarWrapLarge">
-                      {avatarDataUrl ? <img src={avatarDataUrl} alt="User avatar" className="profileAvatarImg" /> : <span className="profileAvatarFallback">{displayUser.initials}</span>}
+                    <span className="profileAvatarWrap profileAvatarWrapLarge" aria-busy={isProfileLoading && !profile}>
+                      {isProfileLoading && !profile ? (
+                        <span className="profileAvatarPending" aria-hidden="true">
+                          <span className="loadingSpinner loadingSpinner--profileHero" />
+                        </span>
+                      ) : avatarDataUrl ? (
+                        <img src={avatarDataUrl} alt="User avatar" className="profileAvatarImg" />
+                      ) : (
+                        <span className="profileAvatarFallback">{displayUser.initials}</span>
+                      )}
                     </span>
                     <button
                       type="button"

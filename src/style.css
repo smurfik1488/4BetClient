@@ -134,6 +134,18 @@ html {
     border-color: #4c8dff;
     box-shadow: 0 0 0 1px rgba(43, 227, 191, 0.35), 0 4px 14px rgba(38, 126, 255, 0.25);
   }
+
+  .userNamePendingLine {
+    animation: none;
+    opacity: 0.72;
+  }
+
+  .loadingSpinner,
+  .loadingSpinner--compact,
+  .loadingSpinner--avatar,
+  .loadingSpinner--profileHero {
+    animation-duration: 1.6s;
+  }
 }
 
 .logoBtn[data-label]::after,
@@ -217,14 +229,11 @@ html {
   color: #a6b3d6;
 }
 
-.balanceValueLoading {
-  display: inline-block;
-  width: 68px;
-  height: 18px;
-  border-radius: 6px;
-  background: linear-gradient(90deg, #1b2442 20%, #2a3763 50%, #1b2442 80%);
-  background-size: 220% 100%;
-  animation: balanceLoadingSweep 1.1s ease-in-out infinite;
+.balanceValuePending {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 22px;
 }
 
 .depositBtn {
@@ -281,6 +290,50 @@ html {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.userName--pendingLoad {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.userNamePending {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: flex-start;
+  max-width: 100%;
+}
+
+.userNamePendingLine {
+  display: block;
+  height: 11px;
+  border-radius: 6px;
+  width: 140px;
+  max-width: 100%;
+  background: #2a3558;
+  animation: pendingSoftPulse 1.45s ease-in-out infinite;
+}
+
+.userNamePendingLine--short {
+  width: 88px;
+}
+
+.avatarPending {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.profileAvatarPending {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
 
 .userChip small {
@@ -712,6 +765,27 @@ html {
   border: 2px solid rgba(76, 125, 255, 0.25);
   border-top-color: #4c7dff;
   animation: spinLoader 0.8s linear infinite;
+}
+
+.loadingSpinner--compact {
+  width: 15px;
+  height: 15px;
+  border-width: 2px;
+}
+
+.loadingSpinner--avatar {
+  width: 18px;
+  height: 18px;
+  border-color: rgba(214, 224, 255, 0.22);
+  border-top-color: #c8d8ff;
+}
+
+.loadingSpinner--profileHero {
+  width: 40px;
+  height: 40px;
+  border-width: 3px;
+  border-color: rgba(120, 160, 230, 0.22);
+  border-top-color: #9ab8ff;
 }
 
 .statsRow {
@@ -1981,7 +2055,13 @@ input:focus-visible {
   to { transform: rotate(360deg); }
 }
 
-@keyframes balanceLoadingSweep {
-  from { background-position: 200% 0; }
-  to { background-position: -20% 0; }
+@keyframes pendingSoftPulse {
+  0%,
+  100% {
+    opacity: 0.52;
+  }
+
+  50% {
+    opacity: 0.9;
+  }
 }
