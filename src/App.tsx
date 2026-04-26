@@ -121,10 +121,12 @@ function App() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [betPlacementMessage, setBetPlacementMessage] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [expandedBetId, setExpandedBetId] = useState<string | null>(null);
   const contentPanelRef = useRef<HTMLDivElement | null>(null);
   const contentLayoutRef = useRef<HTMLDivElement | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
@@ -277,6 +279,18 @@ function App() {
 
     return () => clearTimeout(timer);
   }, [profileMessage]);
+
+  useEffect(() => {
+    if (!betPlacementMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setBetPlacementMessage(null);
+    }, 2600);
+
+    return () => clearTimeout(timer);
+  }, [betPlacementMessage]);
 
   useEffect(() => {
     return () => {
@@ -657,6 +671,9 @@ function App() {
       setMyBets((prev) => (prev.some((b) => b.id === placed.id) ? prev : [placed, ...prev]));
       setSlipLegs([]);
       setIsBetSlipOpen(false);
+      setActiveScreen('history');
+      setExpandedBetId(placed.id);
+      setBetPlacementMessage('Bet placed successfully.');
       await loadWallet();
     } catch (e) {
       if (isUnauthorizedError(e)) {
@@ -1878,29 +1895,52 @@ function App() {
                   <div className="statCard"><span>Lost</span><strong>{myBets.filter((b) => b.status === 2).length}</strong></div>
                   <div className="statCard"><span>Pending</span><strong>{myBets.filter((b) => b.status === 0).length}</strong></div>
                 </div>
-                <div className="tableWrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Picks</th>
-                        <th>Odds</th>
-                        <th>Stake</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {myBets.map((bet) => (
-                        <tr key={bet.id}>
-                          <td>{new Date(bet.createdAt).toLocaleDateString()}</td>
-                          <td className="betPicksCell">{formatBetLegsSummary(bet)}</td>
-                          <td>{bet.combinedOdds.toFixed(2)}</td>
-                          <td>${Number(bet.stake).toFixed(2)}</td>
-                          <td>{mapStatusLabel(bet.status)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="historyList" role="list">
+                  {myBets.length === 0 && (
+                    <div className="historyEmptyState">You have not placed bets yet.</div>
+                  )}
+                  {myBets.map((bet) => {
+                    const isExpanded = expandedBetId === bet.id;
+                    return (
+                      <article key={bet.id} className={`historyCard ${isExpanded ? 'historyCardExpanded' : ''}`} role="listitem">
+                        <button
+                          type="button"
+                          className="historyCardHead"
+                          onClick={() => setExpandedBetId((curr) => (curr === bet.id ? null : bet.id))}
+                          aria-expanded={isExpanded}
+                        >
+                          <span className="historyCardDate">{new Date(bet.createdAt).toLocaleString()}</span>
+                          <strong className={`historyCardStatus status-${mapStatusLabel(bet.status).toLowerCase()}`}>{mapStatusLabel(bet.status)}</strong>
+                          <span className="historyCardStake">${Number(bet.stake).toFixed(2)}</span>
+                          <span className="historyCardOdds">x{bet.combinedOdds.toFixed(2)}</span>
+                          <span className="historyCardChevron" aria-hidden="true">{isExpanded ? '−' : '+'}</span>
+                        </button>
+                        {isExpanded && (
+                          <div className="historyCardBody">
+                            <div className="historyCardMeta">
+                              <span>Potential payout</span>
+                              <strong>${Number(bet.potentialPayout).toFixed(2)}</strong>
+                            </div>
+                            <div className="historyCardMeta">
+                              <span>Settled payout</span>
+                              <strong>{bet.settledPayout != null ? `$${Number(bet.settledPayout).toFixed(2)}` : '—'}</strong>
+                            </div>
+                            <div className="historyLegs">
+                              {(bet.legs ?? []).map((leg) => (
+                                <div key={`${bet.id}-${leg.eventExternalId}-${leg.selection}`} className="historyLegRow">
+                                  <div>
+                                    <strong>{leg.homeTeam} vs {leg.awayTeam}</strong>
+                                    <small>{formatBetLegSelection(leg)}</small>
+                                  </div>
+                                  <strong className="historyLegOdds">{leg.lockedOdds.toFixed(2)}</strong>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
                 </div>
               </>
             )}
@@ -2260,6 +2300,7 @@ function App() {
         </div>
       )}
       {profileMessage && <div className="profileToast">{profileMessage}</div>}
+      {betPlacementMessage && <div className="profileToast betToast">{betPlacementMessage}</div>}
     </div>
   );
 }
@@ -2342,18 +2383,10 @@ function normalizeBetDto(raw: BetDto): BetDto {
   };
 }
 
-function formatBetLegsSummary(bet: BetDto): string {
-  const legs = bet.legs ?? [];
-  if (legs.length === 0) {
-    return '—';
-  }
-
-  return legs
-    .map((l) => {
-      const pick = l.selection === 0 ? l.homeTeam : l.selection === 1 ? 'Draw' : l.awayTeam;
-      return `${l.homeTeam} vs ${l.awayTeam}: ${pick}`;
-    })
-    .join(' · ');
+function formatBetLegSelection(leg: BetLegDto): string {
+  if (leg.selection === 0) return `Pick: ${leg.homeTeam} (1)`;
+  if (leg.selection === 1) return 'Pick: Draw (X)';
+  return `Pick: ${leg.awayTeam} (2)`;
 }
 
 function mapStatusLabel(status: BetDto['status']): string {

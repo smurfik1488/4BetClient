@@ -1883,6 +1883,19 @@ input:focus-visible {
   .sportsMatchesList h3 {
     text-align: left;
   }
+
+  .historyCardHead {
+    grid-template-columns: 1fr auto auto;
+    grid-template-areas:
+      "date status chevron"
+      "stake odds chevron";
+  }
+
+  .historyCardDate { grid-area: date; }
+  .historyCardStatus { grid-area: status; justify-self: start; }
+  .historyCardStake { grid-area: stake; }
+  .historyCardOdds { grid-area: odds; }
+  .historyCardChevron { grid-area: chevron; align-self: center; }
 }
 
 .tableWrap table {
@@ -1896,6 +1909,137 @@ input:focus-visible {
   text-align: left;
   padding: 8px;
   font-size: 13px;
+}
+
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.historyEmptyState {
+  border: 1px dashed #334067;
+  border-radius: 10px;
+  padding: 12px;
+  color: #9fb0d8;
+  background: #111833;
+}
+
+.historyCard {
+  border: 1px solid #2a3558;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(145deg, #111934, #0d1429);
+}
+
+.historyCardExpanded {
+  border-color: #4666a8;
+  box-shadow: 0 0 0 1px rgba(76, 125, 255, 0.22);
+}
+
+.historyCardHead {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1.6fr auto auto auto auto;
+  gap: 10px;
+  align-items: center;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 12px;
+  text-align: left;
+}
+
+.historyCardHead:hover {
+  background: rgba(37, 54, 93, 0.32);
+}
+
+.historyCardDate {
+  color: #9cb0de;
+  font-size: 13px;
+}
+
+.historyCardStatus {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid #3a4c7b;
+  color: #d9e6ff;
+}
+
+.historyCardStatus.status-won {
+  border-color: #2d7f5f;
+  color: #6fe2b1;
+}
+
+.historyCardStatus.status-lost {
+  border-color: #844055;
+  color: #ff96ad;
+}
+
+.historyCardStatus.status-pending {
+  border-color: #4f5a7e;
+  color: #c8d4f7;
+}
+
+.historyCardStatus.status-refunded {
+  border-color: #5d4b8d;
+  color: #d8c2ff;
+}
+
+.historyCardStake,
+.historyCardOdds {
+  color: #eaf0ff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.historyCardChevron {
+  font-size: 19px;
+  color: #9bb0df;
+  line-height: 1;
+}
+
+.historyCardBody {
+  border-top: 1px solid #2a3558;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.historyCardMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #9fb0d8;
+}
+
+.historyCardMeta strong {
+  color: #eef4ff;
+}
+
+.historyLegs {
+  display: grid;
+  gap: 8px;
+}
+
+.historyLegRow {
+  border: 1px solid #2d3b63;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #10172f;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.historyLegRow small {
+  color: #8fa2d3;
+}
+
+.historyLegOdds {
+  color: #dbe6ff;
 }
 
 .walletHero {
@@ -1998,6 +2142,13 @@ input:focus-visible {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
+}
+
+.betToast {
+  top: 132px;
+  border-color: #2d7f5f;
+  background: linear-gradient(135deg, #102b23, #0f241f);
+  color: #baf6d8;
 }
 
 .goalPulse {
