@@ -17,7 +17,8 @@ import type {
 import { realtimeEvents } from './realtimeEvents';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL
+    ?? 'https://4betapi-d7bdaga2fbecdbf4.polandcentral-01.azurewebsites.net/api',
 });
 
 api.interceptors.request.use((config) => {
