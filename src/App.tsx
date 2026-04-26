@@ -648,6 +648,7 @@ function App() {
       const placed = normalizeBetDto(res.data);
       setMyBets((prev) => (prev.some((b) => b.id === placed.id) ? prev : [placed, ...prev]));
       setSlipLegs([]);
+      setIsBetSlipOpen(false);
       await loadWallet();
     } catch (e) {
       if (isUnauthorizedError(e)) {
