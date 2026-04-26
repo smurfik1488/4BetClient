@@ -90,6 +90,7 @@ function App() {
   const [welcomeEvents, setWelcomeEvents] = useState<SportEventDto[]>([]);
 
   const [events, setEvents] = useState<SportEventDto[]>([]);
+  const [isEventsLoading, setIsEventsLoading] = useState(true);
   const [myBets, setMyBets] = useState<BetDto[]>([]);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [slipLegs, setSlipLegs] = useState<BetSlipLeg[]>([]);
@@ -298,6 +299,7 @@ function App() {
   }
 
   async function loadInitialData() {
+    setIsEventsLoading(true);
     const [eventsRes, betsRes] = await Promise.allSettled([
       api.get<SportEventDto[]>('/sport/active'),
       api.get<BetDto[]>('/bet/mine'),
@@ -313,6 +315,16 @@ function App() {
     }
 
     await Promise.all([loadWallet(), loadProfile()]);
+    setIsEventsLoading(false);
+  }
+
+  async function refreshActiveEventsSnapshot() {
+    try {
+      const response = await api.get<SportEventDto[]>('/sport/active');
+      setEvents(ensureArray<SportEventDto>(response.data));
+    } catch {
+      // Keep current UI state when transient polling request fails.
+    }
   }
 
   async function connectRealtime(getDisposed: () => boolean, refreshWallet: () => Promise<void>) {
@@ -413,6 +425,7 @@ function App() {
 
   useEffect(() => {
     if (!token) {
+      setIsEventsLoading(true);
       return;
     }
 
@@ -481,6 +494,18 @@ function App() {
     const interval = setInterval(tick, 12_000);
     return () => clearInterval(interval);
   }, [token, activeScreen, scheduleMatchFlashes]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    const pollInterval = window.setInterval(() => {
+      void refreshActiveEventsSnapshot();
+    }, 30000);
+
+    return () => window.clearInterval(pollInterval);
+  }, [token]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -1584,6 +1609,12 @@ function App() {
           <div className="contentPanel" ref={contentPanelRef}>
             {activeScreen === 'dashboard' && (
               <>
+                {isEventsLoading && footballEvents.length === 0 && (
+                  <div className="loadingStateCard" role="status" aria-live="polite">
+                    <span className="loadingSpinner" aria-hidden="true" />
+                    <strong>Loading live matches...</strong>
+                  </div>
+                )}
                 <div className="statsRow">
                   <div className="statCard"><span>Active Bets</span><strong>{myBets.length}</strong></div>
                   <div className="statCard"><span>Live Matches</span><strong>{liveMatchesCount}</strong></div>
@@ -1662,6 +1693,12 @@ function App() {
 
             {activeScreen === 'sports' && (
               <>
+                {isEventsLoading && sportCards.length === 0 && (
+                  <div className="loadingStateCard" role="status" aria-live="polite">
+                    <span className="loadingSpinner" aria-hidden="true" />
+                    <strong>Loading sports data...</strong>
+                  </div>
+                )}
                 {!selectedSportTitle && (
                   <div className="gridCards">
                     {sportCards.map((sport) => (
@@ -1695,7 +1732,12 @@ function App() {
                       <h3>{selectedSportTitle} matches</h3>
                       <small>{selectedSportMatches.length} total</small>
                     </header>
-                    {selectedSportMatches.length === 0 ? (
+                    {isEventsLoading && selectedSportMatches.length === 0 ? (
+                      <div className="loadingStateCard loadingStateCardInline" role="status" aria-live="polite">
+                        <span className="loadingSpinner" aria-hidden="true" />
+                        <strong>Loading matches...</strong>
+                      </div>
+                    ) : selectedSportMatches.length === 0 ? (
                       <p>No matches for selected sport.</p>
                     ) : (
                       pagedSportMatches.map((ev) => (

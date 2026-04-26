@@ -657,6 +657,31 @@ html {
   margin-bottom: 10px;
 }
 
+.loadingStateCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #2e3a5f;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #111832, #0d1429);
+  padding: 14px;
+  margin-bottom: 12px;
+  color: #d5e3ff;
+}
+
+.loadingStateCardInline {
+  margin-bottom: 0;
+}
+
+.loadingSpinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(76, 125, 255, 0.25);
+  border-top-color: #4c7dff;
+  animation: spinLoader 0.8s linear infinite;
+}
+
 .statsRow {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1893,4 +1918,9 @@ input:focus-visible {
   0% { box-shadow: 0 0 0 0 rgba(43, 227, 191, 0.7); }
   70% { box-shadow: 0 0 0 8px rgba(43, 227, 191, 0); }
   100% { box-shadow: 0 0 0 0 rgba(43, 227, 191, 0); }
+}
+
+@keyframes spinLoader {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
