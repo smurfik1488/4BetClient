@@ -1054,6 +1054,9 @@ input:focus-visible {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  background:
+    linear-gradient(135deg, rgba(6, 10, 22, 0.78), rgba(8, 18, 42, 0.68)),
+    url('/login-bg.png') center / cover no-repeat fixed;
 }
 
 .authPanel {
@@ -1061,9 +1064,10 @@ input:focus-visible {
   max-width: 100%;
   border: 1px solid #2a2e49;
   border-radius: 14px;
-  background: #10142a;
+  background: rgba(16, 20, 42, 0.82);
   padding: 22px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
 }
 
 .welcomePanel {
@@ -1072,10 +1076,11 @@ input:focus-visible {
   flex-shrink: 0;
   border: 1px solid #2a2e49;
   border-radius: 14px;
-  background: linear-gradient(145deg, #10172f, #0a1024);
+  background: linear-gradient(145deg, rgba(16, 23, 47, 0.84), rgba(10, 16, 36, 0.78));
   padding: 28px 28px 32px;
   margin-bottom: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
 }
 
 .welcomeHero {
