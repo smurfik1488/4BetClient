@@ -1339,7 +1339,24 @@ function App() {
                     <small>Live preview before sign in</small>
                   </header>
                   {welcomeFootballEvents.length === 0 ? (
-                    <p className="authHint">Match feed is loading. Create account to unlock full live board.</p>
+                    <div className="welcomeLoadingState" role="status" aria-live="polite">
+                      <div className="welcomeLoadingHead">
+                        <span className="loadingSpinner loadingSpinner--compact" aria-hidden="true" />
+                        <p className="authHint">Match feed is loading. Create account to unlock full live board.</p>
+                      </div>
+                      <div className="welcomeLoadingList" aria-hidden="true">
+                        <div className="welcomeLoadingRow">
+                          <span className="welcomeLoadingLine welcomeLoadingLine--team" />
+                          <span className="welcomeLoadingLine welcomeLoadingLine--meta" />
+                          <span className="welcomeLoadingLine welcomeLoadingLine--team" />
+                        </div>
+                        <div className="welcomeLoadingRow">
+                          <span className="welcomeLoadingLine welcomeLoadingLine--odd" />
+                          <span className="welcomeLoadingLine welcomeLoadingLine--odd" />
+                          <span className="welcomeLoadingLine welcomeLoadingLine--odd" />
+                        </div>
+                      </div>
+                    </div>
                   ) : (
                     welcomeFootballEvents.map((ev) => (
                       <article key={ev.externalId} className="welcomeMatchItem">

@@ -1294,6 +1294,59 @@ input:focus-visible {
   margin-bottom: 16px;
 }
 
+.welcomeLoadingState {
+  margin-top: 4px;
+}
+
+.welcomeLoadingHead {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.welcomeLoadingHead .authHint {
+  margin: 0;
+}
+
+.welcomeLoadingList {
+  margin-top: 10px;
+  border: 1px solid #2a355f;
+  border-radius: 10px;
+  padding: 10px;
+  background: #121a34;
+  display: grid;
+  gap: 8px;
+}
+
+.welcomeLoadingRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.welcomeLoadingLine {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #27345d 15%, #33487e 50%, #27345d 85%);
+  background-size: 210% 100%;
+  animation: welcomeShimmer 1.4s ease-in-out infinite;
+}
+
+.welcomeLoadingLine--team {
+  height: 14px;
+}
+
+.welcomeLoadingLine--meta {
+  width: 70%;
+  justify-self: center;
+}
+
+.welcomeLoadingLine--odd {
+  height: 30px;
+  border-radius: 8px;
+}
+
 .authLinkBtn {
   border: none;
   background: transparent;
@@ -2262,4 +2315,9 @@ input:focus-visible {
   50% {
     opacity: 0.9;
   }
+}
+
+@keyframes welcomeShimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -20% 0; }
 }
