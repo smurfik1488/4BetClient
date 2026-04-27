@@ -1,4 +1,5 @@
 export interface SportEventDto {
+  id: string;
   externalId: string;
   homeTeam: string;
   awayTeam: string;
@@ -13,6 +14,21 @@ export interface SportEventDto {
   homeScore?: number | null;
   awayScore?: number | null;
   matchStatus: string;
+  matchMinute?: number | null;
+}
+
+export interface ManageSportEventRequest {
+  externalId: string;
+  homeTeam: string;
+  awayTeam: string;
+  eventDate: string;
+  sportKey: string;
+  homeWinOdds: number;
+  drawOdds: number;
+  awayWinOdds: number;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  matchStatus?: string | null;
   matchMinute?: number | null;
 }
 
@@ -75,4 +91,25 @@ export interface BetDto {
   settledAt?: string | null;
   createdAt: string;
   legs: BetLegDto[];
+}
+
+export interface AdminVerificationRequestDto {
+  id: string;
+  userId: string;
+  documentUrl: string;
+  status: string;
+  createdAt: string;
+  userEmail?: string | null;
+  userFirstName?: string | null;
+  userLastName?: string | null;
+}
+
+export interface AdminUserDto {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'User' | 'Moderator' | 'Admin' | string;
+  isEmailVerified: boolean;
+  isBdVerified: boolean;
 }

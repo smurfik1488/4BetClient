@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import * as signalR from '@microsoft/signalr';
 import type {
+  AdminUserDto,
+  AdminVerificationRequestDto,
   BetDto,
   BetLegDto,
   BetSelection,
   ChangePasswordRequest,
+  ManageSportEventRequest,
   PlaceBetRequest,
   SportEventDto,
   UpdateProfileRequest,
@@ -109,7 +112,7 @@ function App() {
   const [withdrawBusy, setWithdrawBusy] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const setStatus = (_: string) => {};
-  const [activeScreen, setActiveScreen] = useState<'dashboard' | 'sports' | 'history' | 'wallet' | 'profile' | 'esports'>('dashboard');
+  const [activeScreen, setActiveScreen] = useState<'dashboard' | 'sports' | 'history' | 'wallet' | 'profile' | 'esports' | 'moderator' | 'admin' | 'verificationPending'>('dashboard');
   const [selectedSportTitle, setSelectedSportTitle] = useState<string | null>(null);
   const [sportsPage, setSportsPage] = useState(1);
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
@@ -133,9 +136,25 @@ function App() {
   const verifyUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [eventHighlights, setEventHighlights] = useState<Record<string, 'goal' | 'event'>>({});
   const [clockNowMs, setClockNowMs] = useState(() => Date.now());
+  const [moderatorForm, setModeratorForm] = useState<ManageSportEventRequest>(() => createEmptyModeratorForm());
+  const [moderatorEditEventId, setModeratorEditEventId] = useState<string | null>(null);
+  const [moderatorBusy, setModeratorBusy] = useState(false);
+  const [moderatorMessage, setModeratorMessage] = useState<string | null>(null);
+  const [adminRequests, setAdminRequests] = useState<AdminVerificationRequestDto[]>([]);
+  const [adminUsers, setAdminUsers] = useState<AdminUserDto[]>([]);
+  const [adminDocumentPreviews, setAdminDocumentPreviews] = useState<Record<string, string>>({});
+  const [adminSection, setAdminSection] = useState<'verifications' | 'roles'>('verifications');
+  const [adminDocumentModal, setAdminDocumentModal] = useState<{ url: string; isImage: boolean } | null>(null);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [adminMessage, setAdminMessage] = useState<string | null>(null);
+  const [verificationDecision, setVerificationDecision] = useState<{ status: 'Approved' | 'Rejected'; message: string; action: 'dashboard' | 'start' } | null>(null);
+  const [isVerificationPendingView, setIsVerificationPendingView] = useState(false);
+  const [pendingRefreshBusy, setPendingRefreshBusy] = useState(false);
+  const [pendingRefreshAt, setPendingRefreshAt] = useState<string | null>(null);
   const connectionRef = useRef<signalR.HubConnection | null>(null);
   const subscribedEventsRef = useRef<Set<string>>(new Set());
   const eventsRef = useRef<SportEventDto[]>([]);
+  const verificationDecisionShownRef = useRef(false);
   eventsRef.current = events;
 
   const scheduleMatchFlashes = useCallback((flashes: Array<{ id: string; kind: 'goal' | 'event' }>) => {
@@ -158,6 +177,9 @@ function App() {
   }, []);
 
   const userProfile = useMemo(() => parseToken(token), [token]);
+  const isAdmin = userProfile.role === 'Admin';
+  const isModerator = userProfile.role === 'Moderator';
+  const isStaffRestricted = isAdmin || isModerator;
   const displayUser = useMemo(() => {
     if (profile) {
       const fullName = `${profile.firstName} ${profile.lastName}`.trim();
@@ -364,6 +386,240 @@ function App() {
     }
   }
 
+  async function loadAdminRequests() {
+    if (!isAdmin) {
+      setAdminRequests([]);
+      return;
+    }
+
+    setAdminBusy(true);
+    try {
+      const response = await api.get<AdminVerificationRequestDto[]>('/admin/verifications/pending');
+      const requests = ensureArray<AdminVerificationRequestDto>(response.data);
+      setAdminRequests(requests);
+      await preloadAdminDocumentPreviews(requests);
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        localStorage.removeItem('token');
+        setToken(null);
+      }
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  async function preloadAdminDocumentPreviews(requests: AdminVerificationRequestDto[]) {
+    for (const request of requests) {
+      if (adminDocumentPreviews[request.id]) {
+        continue;
+      }
+      try {
+        const response = await api.get(`/admin/verifications/${request.id}/document`, { responseType: 'blob' });
+        const sourceBlob = response.data as Blob;
+        const normalizedBlob = normalizeDocumentBlob(sourceBlob, request.documentUrl);
+        if (!normalizedBlob.type.startsWith('image/')) {
+          continue;
+        }
+        const objectUrl = URL.createObjectURL(normalizedBlob);
+        setAdminDocumentPreviews((prev) => ({ ...prev, [request.id]: objectUrl }));
+      } catch {
+        // Skip failed previews silently.
+      }
+    }
+  }
+
+  async function openAdminDocument(requestId: string) {
+    try {
+      const response = await api.get(`/admin/verifications/${requestId}/document`, { responseType: 'blob' });
+      const request = adminRequests.find((r) => r.id === requestId);
+      const sourceBlob = response.data as Blob;
+      const normalizedBlob = normalizeDocumentBlob(sourceBlob, request?.documentUrl);
+      const objectUrl = URL.createObjectURL(normalizedBlob);
+      if (adminDocumentModal?.url) {
+        URL.revokeObjectURL(adminDocumentModal.url);
+      }
+      setAdminDocumentModal({
+        url: objectUrl,
+        isImage: normalizedBlob.type.startsWith('image/'),
+      });
+    } catch {
+      setAdminMessage('Unable to open document.');
+    }
+  }
+
+  async function loadAdminUsers() {
+    if (!isAdmin) {
+      setAdminUsers([]);
+      return;
+    }
+
+    try {
+      const response = await api.get<AdminUserDto[]>('/admin/users');
+      setAdminUsers(ensureArray<AdminUserDto>(response.data));
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        localStorage.removeItem('token');
+        setToken(null);
+      }
+    }
+  }
+
+  async function updateUserRole(userId: string, role: 'User' | 'Moderator') {
+    setAdminBusy(true);
+    setAdminMessage(null);
+    try {
+      await api.put(`/admin/users/${userId}/role`, { role });
+      setAdminMessage(`User role updated to ${role}.`);
+      await Promise.all([loadAdminUsers(), loadAdminRequests()]);
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        localStorage.removeItem('token');
+        setToken(null);
+      }
+      setAdminMessage('Unable to update user role.');
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  async function fetchVerificationDecision() {
+    if (!token) {
+      setVerificationDecision(null);
+      return;
+    }
+
+    try {
+      const response = await api.get<{ status: string; message: string; action: string }>('/auth/verification-status');
+      const payload = response.data;
+      if (payload.status === 'Approved') {
+        setIsVerificationPendingView(false);
+        if (isVerificationPendingView && !verificationDecisionShownRef.current) {
+          verificationDecisionShownRef.current = true;
+          setVerificationDecision({ status: 'Approved', message: payload.message, action: 'dashboard' });
+        } else {
+          setVerificationDecision(null);
+        }
+        return;
+      }
+
+      if (payload.status === 'Rejected') {
+        setIsVerificationPendingView(false);
+        if (isVerificationPendingView && !verificationDecisionShownRef.current) {
+          verificationDecisionShownRef.current = true;
+          setVerificationDecision({ status: 'Rejected', message: payload.message, action: 'start' });
+        } else {
+          setVerificationDecision(null);
+        }
+        return;
+      }
+
+      if (payload.status === 'Pending') {
+        setVerificationDecision(null);
+        setIsVerificationPendingView(true);
+        verificationDecisionShownRef.current = false;
+        setActiveScreen('verificationPending');
+        return;
+      }
+
+      setVerificationDecision(null);
+      setIsVerificationPendingView(false);
+    } catch {
+      // Silent fail to avoid blocking regular user flow.
+    }
+  }
+
+  async function refreshPendingVerificationStatus() {
+    setPendingRefreshBusy(true);
+    await fetchVerificationDecision();
+    setPendingRefreshAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    setPendingRefreshBusy(false);
+  }
+
+  async function submitModeratorEvent() {
+    setModeratorBusy(true);
+    setModeratorMessage(null);
+    const payload: ManageSportEventRequest = {
+      ...moderatorForm,
+      homeScore: moderatorForm.homeScore ?? null,
+      awayScore: moderatorForm.awayScore ?? null,
+      matchMinute: moderatorForm.matchMinute ?? null,
+      matchStatus: moderatorForm.matchStatus?.trim() || null,
+    };
+
+    try {
+      if (moderatorEditEventId) {
+        await api.put(`/sport/${moderatorEditEventId}`, payload);
+        setModeratorMessage('Event updated.');
+      } else {
+        await api.post('/sport', payload);
+        setModeratorMessage('Event added.');
+      }
+
+      setModeratorForm(createEmptyModeratorForm());
+      setModeratorEditEventId(null);
+      await refreshActiveEventsSnapshot();
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        localStorage.removeItem('token');
+        setToken(null);
+      }
+      setModeratorMessage('Unable to save event. Check form data and try again.');
+    } finally {
+      setModeratorBusy(false);
+    }
+  }
+
+  async function removeModeratorEvent(id: string) {
+    setModeratorBusy(true);
+    setModeratorMessage(null);
+    try {
+      await api.delete(`/sport/${id}`);
+      setModeratorMessage('Event deleted.');
+      await refreshActiveEventsSnapshot();
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        localStorage.removeItem('token');
+        setToken(null);
+      }
+      setModeratorMessage('Unable to delete event.');
+    } finally {
+      setModeratorBusy(false);
+    }
+  }
+
+  async function syncTimerForEvent(event: SportEventDto) {
+    const synced = buildSyncedModeratorPayload(event);
+    setModeratorBusy(true);
+    setModeratorMessage(null);
+    try {
+      await api.put(`/sport/${event.id}`, synced);
+      setModeratorMessage('Timer synchronized.');
+      await refreshActiveEventsSnapshot();
+    } catch {
+      setModeratorMessage('Timer sync failed.');
+    } finally {
+      setModeratorBusy(false);
+    }
+  }
+
+  async function processVerificationRequest(requestId: string, action: 'approve' | 'reject') {
+    setAdminBusy(true);
+    setAdminMessage(null);
+    try {
+      await api.post(`/admin/verifications/${requestId}/${action}`);
+      setAdminMessage(action === 'approve' ? 'Request approved.' : 'Request rejected.');
+      await loadAdminRequests();
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        localStorage.removeItem('token');
+        setToken(null);
+      }
+      setAdminMessage('Unable to process request.');
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
   async function connectRealtime(getDisposed: () => boolean, refreshWallet: () => Promise<void>) {
     const hubUrl = API_ORIGIN ? `${API_ORIGIN}/matchHub` : '/matchHub';
     const connection = new signalR.HubConnectionBuilder()
@@ -526,6 +782,53 @@ function App() {
     void loadProfile();
   }, [activeScreen, token, loadProfile]);
 
+  useEffect(() => {
+    if (!token || !isAdmin || activeScreen !== 'admin') {
+      return;
+    }
+    void Promise.all([loadAdminRequests(), loadAdminUsers()]);
+    const interval = window.setInterval(() => {
+      void Promise.all([loadAdminRequests(), loadAdminUsers()]);
+    }, 10000);
+    return () => window.clearInterval(interval);
+  }, [activeScreen, isAdmin, token]);
+
+  useEffect(() => {
+    if (!token || !isModerator || activeScreen !== 'moderator') {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      void refreshActiveEventsSnapshot();
+    }, 10000);
+    return () => window.clearInterval(interval);
+  }, [activeScreen, isModerator, token]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    if (isAdmin && activeScreen !== 'admin') {
+      setActiveScreen('admin');
+      return;
+    }
+
+    if (isModerator && activeScreen !== 'moderator') {
+      setActiveScreen('moderator');
+    }
+  }, [activeScreen, isAdmin, isModerator, token]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+    void fetchVerificationDecision();
+    const interval = window.setInterval(() => {
+      void fetchVerificationDecision();
+    }, 20000);
+    return () => window.clearInterval(interval);
+  }, [token]);
+
   // HTTP fallback: keeps scores fresh if SignalR/WebSocket fails behind Vite proxy
   useEffect(() => {
     if (!token || activeScreen !== 'dashboard') {
@@ -558,6 +861,14 @@ function App() {
     const interval = setInterval(tick, 12_000);
     return () => clearInterval(interval);
   }, [token, activeScreen, scheduleMatchFlashes]);
+
+  useEffect(() => {
+    return () => {
+      if (adminDocumentModal?.url) {
+        URL.revokeObjectURL(adminDocumentModal.url);
+      }
+    };
+  }, [adminDocumentModal]);
 
   useEffect(() => {
     if (!token) {
@@ -1060,9 +1371,24 @@ function App() {
           setToken(verificationToken);
         }
         setPendingVerificationToken(null);
+        setIsVerificationPendingView(false);
         clearVerificationFile();
         setIsDocVerifyModalOpen(false);
         await loadProfile();
+        setStatus(message);
+        return;
+      }
+
+      if (statusValue === 'pending') {
+        if (pendingVerificationToken) {
+          localStorage.setItem('token', verificationToken);
+          setToken(verificationToken);
+          setPendingVerificationToken(null);
+        }
+        clearVerificationFile();
+        setIsDocVerifyModalOpen(false);
+        setIsVerificationPendingView(true);
+        setActiveScreen('verificationPending');
         setStatus(message);
         return;
       }
@@ -1188,11 +1514,27 @@ function App() {
     setProfileError(null);
     setAvatarDataUrl(null);
     setIsProfileLoading(false);
+    setIsVerificationPendingView(false);
+    verificationDecisionShownRef.current = false;
+    if (adminDocumentModal?.url) {
+      URL.revokeObjectURL(adminDocumentModal.url);
+    }
+    setAdminDocumentModal(null);
     setStatus('Logged out');
   }
 
   function goHomeFromSidebar() {
-    setActiveScreen('dashboard');
+    if (isVerificationPendingView) {
+      setActiveScreen('verificationPending');
+      return;
+    }
+    if (isAdmin) {
+      setActiveScreen('admin');
+    } else if (isModerator) {
+      setActiveScreen('moderator');
+    } else {
+      setActiveScreen('dashboard');
+    }
     setSelectedSportTitle(null);
     setSportsPage(1);
     contentPanelRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1638,88 +1980,131 @@ function App() {
         <button className="logoBtn" onClick={goHomeFromSidebar} aria-label="4Bet home" data-label="Home">
           <SidebarIcon name="logo" />
         </button>
-        <button className={activeScreen === 'dashboard' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('dashboard')} aria-label="Dashboard" data-label="Dashboard">
-          <SidebarIcon name="dashboard" />
-        </button>
-        <button className={activeScreen === 'sports' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('sports')} aria-label="Sports" data-label="Sports">
-          <SidebarIcon name="sports" />
-        </button>
-        <button className={activeScreen === 'esports' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('esports')} aria-label="Esports tournaments" data-label="Esports">
-          <SidebarIcon name="tournaments" />
-        </button>
-        <button className={activeScreen === 'wallet' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('wallet')} aria-label="Wallet" data-label="Wallet">
-          <SidebarIcon name="wallet" />
-        </button>
-        <button className={activeScreen === 'profile' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('profile')} aria-label="Profile" data-label="Profile">
-          <SidebarIcon name="profile" />
-        </button>
-        <button className={activeScreen === 'history' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('history')} aria-label="Betting history" data-label="History">
-          <SidebarIcon name="history" />
-        </button>
-        <button
-          type="button"
-          className={[
-            'nav',
-            'navBottom',
-            isBetSlipOpen ? 'active' : '',
-            slipLegs.length > 0 ? 'navBetSlipPending' : '',
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          onClick={() => setIsBetSlipOpen((v) => !v)}
-          title="Open bet slip"
-          aria-label="Open bet slip"
-          data-label="Bet slip"
-        >
-          <SidebarIcon name="slip" />
-        </button>
+        {!isStaffRestricted && !isVerificationPendingView && (
+          <>
+            <button className={activeScreen === 'dashboard' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('dashboard')} aria-label="Dashboard" data-label="Dashboard">
+              <SidebarIcon name="dashboard" />
+            </button>
+            <button className={activeScreen === 'sports' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('sports')} aria-label="Sports" data-label="Sports">
+              <SidebarIcon name="sports" />
+            </button>
+            <button className={activeScreen === 'esports' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('esports')} aria-label="Esports tournaments" data-label="Esports">
+              <SidebarIcon name="tournaments" />
+            </button>
+            <button className={activeScreen === 'wallet' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('wallet')} aria-label="Wallet" data-label="Wallet">
+              <SidebarIcon name="wallet" />
+            </button>
+            <button className={activeScreen === 'profile' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('profile')} aria-label="Profile" data-label="Profile">
+              <SidebarIcon name="profile" />
+            </button>
+            <button className={activeScreen === 'history' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('history')} aria-label="Betting history" data-label="History">
+              <SidebarIcon name="history" />
+            </button>
+          </>
+        )}
+        {isModerator && (
+          <button className={activeScreen === 'moderator' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('moderator')} aria-label="Moderator panel" data-label="Moderator">
+            <SidebarIcon name="moderator" />
+          </button>
+        )}
+        {isAdmin && (
+          <button className={activeScreen === 'admin' ? 'nav active' : 'nav'} onClick={() => setActiveScreen('admin')} aria-label="Admin panel" data-label="Admin">
+            <SidebarIcon name="admin" />
+          </button>
+        )}
+        {!isStaffRestricted && !isVerificationPendingView && (
+          <button
+            type="button"
+            className={[
+              'nav',
+              'navBottom',
+              isBetSlipOpen ? 'active' : '',
+              slipLegs.length > 0 ? 'navBetSlipPending' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            onClick={() => setIsBetSlipOpen((v) => !v)}
+            title="Open bet slip"
+            aria-label="Open bet slip"
+            data-label="Bet slip"
+          >
+            <SidebarIcon name="slip" />
+          </button>
+        )}
       </aside>
 
       <section className="mainZone">
         <header className="topbar">
-          <div className="topControls">
-            <div className="balanceChip">
-              <span>Available Balance</span>
-              {isWalletLoading ? (
-                <strong className="balanceValuePending" aria-live="polite" aria-label="Loading balance">
-                  <span className="loadingSpinner loadingSpinner--compact" aria-hidden="true" />
-                </strong>
-              ) : (
-                <strong>{walletBalance == null ? '—' : `$${walletBalance.toFixed(2)}`}</strong>
-              )}
-            </div>
-            <button className="depositBtn" onClick={openTopUpModal}>+ Deposit</button>
-            <button type="button" className="userChip" onClick={() => setActiveScreen('profile')}>
-              <span className="avatar" aria-busy={isProfileLoading && !profile}>
-                {isProfileLoading && !profile ? (
-                  <span className="avatarPending" aria-hidden="true">
-                    <span className="loadingSpinner loadingSpinner--avatar" />
-                  </span>
-                ) : avatarDataUrl ? (
-                  <img src={avatarDataUrl} alt="User avatar" className="avatarImg" />
-                ) : (
-                  displayUser.initials
-                )}
-              </span>
-              <div className="userMeta">
-                <strong className={isProfileLoading && !profile ? 'userName userName--pendingLoad' : 'userName'}>
-                  {isProfileLoading && !profile ? (
-                    <span className="userNamePending" aria-label="Loading profile">
-                      <span className="userNamePendingLine" />
-                      <span className="userNamePendingLine userNamePendingLine--short" />
-                    </span>
-                  ) : (
-                    displayUser.fullName
-                  )}
-                </strong>
-                <small>{isProfileLoading && !profile ? 'Loading…' : 'Premium Member'}</small>
+          {isStaffRestricted ? (
+            <div className="staffTopbar">
+              <div>
+                <strong>{isAdmin ? 'Administrator workspace' : 'Moderator workspace'}</strong>
+                <small>Real-time control panel</small>
               </div>
-            </button>
-          </div>
+              <button type="button" className="logoutBtn" onClick={logout}>Log out</button>
+            </div>
+          ) : (
+            <div className="topControls">
+              <div className="balanceChip">
+                <span>Available Balance</span>
+                {isWalletLoading ? (
+                  <strong className="balanceValuePending" aria-live="polite" aria-label="Loading balance">
+                    <span className="loadingSpinner loadingSpinner--compact" aria-hidden="true" />
+                  </strong>
+                ) : (
+                  <strong>{walletBalance == null ? '—' : `$${walletBalance.toFixed(2)}`}</strong>
+                )}
+              </div>
+              <button className="depositBtn" onClick={openTopUpModal}>+ Deposit</button>
+              <button type="button" className="userChip" onClick={() => setActiveScreen('profile')}>
+                <span className="avatar" aria-busy={isProfileLoading && !profile}>
+                  {isProfileLoading && !profile ? (
+                    <span className="avatarPending" aria-hidden="true">
+                      <span className="loadingSpinner loadingSpinner--avatar" />
+                    </span>
+                  ) : avatarDataUrl ? (
+                    <img src={avatarDataUrl} alt="User avatar" className="avatarImg" />
+                  ) : (
+                    displayUser.initials
+                  )}
+                </span>
+                <div className="userMeta">
+                  <strong className={isProfileLoading && !profile ? 'userName userName--pendingLoad' : 'userName'}>
+                    {isProfileLoading && !profile ? (
+                      <span className="userNamePending" aria-label="Loading profile">
+                        <span className="userNamePendingLine" />
+                        <span className="userNamePendingLine userNamePendingLine--short" />
+                      </span>
+                    ) : (
+                      displayUser.fullName
+                    )}
+                  </strong>
+                  <small>{isProfileLoading && !profile ? 'Loading…' : 'Premium Member'}</small>
+                </div>
+              </button>
+            </div>
+          )}
         </header>
 
         <div className="contentLayout" ref={contentLayoutRef}>
           <div className="contentPanel" ref={contentPanelRef}>
+            {activeScreen === 'verificationPending' && (
+              <section className="placeholderCard verificationPendingCard verificationPendingCard--enhanced">
+                <span className="verificationPendingBadge">Pending review</span>
+                <h2>Document review in progress</h2>
+                <p>Your documents are under manual verification. Admin will review them soon and you will be notified right here.</p>
+                {pendingRefreshAt && <small className="verificationPendingMeta">Last checked: {pendingRefreshAt}</small>}
+                <div className="adminActions verificationPendingActions">
+                  <button type="button" className="authSecondaryBtn" onClick={() => void refreshPendingVerificationStatus()} disabled={pendingRefreshBusy}>
+                    {pendingRefreshBusy ? 'Updating...' : 'Refresh status'}
+                  </button>
+                  <button type="button" className="logoutBtn dangerBtn" onClick={logout}>
+                    Back to start screen
+                  </button>
+                </div>
+              </section>
+            )}
+
             {activeScreen === 'dashboard' && (
               <>
                 {isEventsLoading && footballEvents.length === 0 && (
@@ -1762,6 +2147,7 @@ function App() {
                       <div className="scoreCenter">
                         <span className="scoreNumbers">{formatScore(ev.homeScore, ev.awayScore)}</span>
                         <span className="minute">{formatMatchClock(ev, clockNowMs)}</span>
+                        <small className="matchPhase">{formatDashboardPhaseLabel(ev)}</small>
                       </div>
                       <div className="teamBlock">
                         <span className="teamLogo">
@@ -2137,6 +2523,172 @@ function App() {
               </section>
             )}
 
+            {activeScreen === 'moderator' && isModerator && (
+              <section className="adminPanel">
+                <header className="adminPanelHeader">
+                  <div>
+                    <h2>Moderator panel</h2>
+                    <p>Manage events, odds, scores, and match timer state.</p>
+                  </div>
+                  <button type="button" className="authSecondaryBtn" onClick={() => void refreshActiveEventsSnapshot()} disabled={moderatorBusy}>
+                    Refresh list
+                  </button>
+                </header>
+                {moderatorMessage && <div className="profileMessage">{moderatorMessage}</div>}
+                <div className="adminEditorCard">
+                  <h3>{moderatorEditEventId ? 'Edit event' : 'Add event'}</h3>
+                  <div className="adminFormGrid">
+                    <input value={moderatorForm.externalId} onChange={(e) => setModeratorForm((prev) => ({ ...prev, externalId: e.target.value }))} placeholder="External ID" />
+                    <input value={moderatorForm.sportKey} onChange={(e) => setModeratorForm((prev) => ({ ...prev, sportKey: e.target.value }))} placeholder="Sport key (soccer_epl)" />
+                    <input value={moderatorForm.homeTeam} onChange={(e) => setModeratorForm((prev) => ({ ...prev, homeTeam: e.target.value }))} placeholder="Home team" />
+                    <input value={moderatorForm.awayTeam} onChange={(e) => setModeratorForm((prev) => ({ ...prev, awayTeam: e.target.value }))} placeholder="Away team" />
+                    <input type="datetime-local" value={toDateTimeLocalValue(moderatorForm.eventDate)} onChange={(e) => setModeratorForm((prev) => ({ ...prev, eventDate: fromDateTimeLocalValue(e.target.value) }))} />
+                    <input value={moderatorForm.matchStatus ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, matchStatus: e.target.value }))} placeholder="Phase (1H/HT/2H/FT)" />
+                    <input type="number" min={0} value={moderatorForm.matchMinute ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, matchMinute: parseNumberOrNull(e.target.value) }))} placeholder="Minute" />
+                    <input type="number" min={0} value={moderatorForm.homeScore ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, homeScore: parseNumberOrNull(e.target.value) }))} placeholder="Home score" />
+                    <input type="number" min={0} value={moderatorForm.awayScore ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, awayScore: parseNumberOrNull(e.target.value) }))} placeholder="Away score" />
+                    <input type="number" min={1} step="0.01" value={moderatorForm.homeWinOdds} onChange={(e) => setModeratorForm((prev) => ({ ...prev, homeWinOdds: Number(e.target.value) || 1 }))} placeholder="Home odds" />
+                    <input type="number" min={1} step="0.01" value={moderatorForm.drawOdds} onChange={(e) => setModeratorForm((prev) => ({ ...prev, drawOdds: Number(e.target.value) || 1 }))} placeholder="Draw odds" />
+                    <input type="number" min={1} step="0.01" value={moderatorForm.awayWinOdds} onChange={(e) => setModeratorForm((prev) => ({ ...prev, awayWinOdds: Number(e.target.value) || 1 }))} placeholder="Away odds" />
+                  </div>
+                  <div className="adminActions">
+                    <button type="button" className="authSubmit" onClick={() => void submitModeratorEvent()} disabled={moderatorBusy}>
+                      {moderatorBusy ? 'Saving…' : moderatorEditEventId ? 'Update event' : 'Add event'}
+                    </button>
+                    <button type="button" className="authSecondaryBtn" onClick={() => { setModeratorForm(createEmptyModeratorForm()); setModeratorEditEventId(null); }} disabled={moderatorBusy}>
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="adminList">
+                  {events.map((event) => (
+                    <article className="adminItemCard" key={event.id}>
+                      <div>
+                        <strong>{event.homeTeam} vs {event.awayTeam}</strong>
+                        <p>{new Date(event.eventDate).toLocaleString()}</p>
+                        <p>{formatMatchPhaseLabel(event.matchStatus)} {event.matchMinute != null ? `- ${event.matchMinute}'` : ''} | {formatScore(event.homeScore, event.awayScore)}</p>
+                      </div>
+                      <div className="adminActions">
+                        <button type="button" className="authSecondaryBtn" onClick={() => { setModeratorEditEventId(event.id); setModeratorForm(mapEventToModeratorForm(event)); }}>
+                          Edit
+                        </button>
+                        <button type="button" className="authSecondaryBtn" onClick={() => void syncTimerForEvent(event)} disabled={moderatorBusy}>
+                          Sync timer
+                        </button>
+                        <button type="button" className="logoutBtn" onClick={() => void removeModeratorEvent(event.id)} disabled={moderatorBusy}>
+                          Delete
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {activeScreen === 'admin' && isAdmin && (
+              <section className="adminPanel">
+                <header className="adminPanelHeader">
+                  <div>
+                    <h2>Administrator workspace</h2>
+                    <p>Manage verification requests and moderator roles.</p>
+                  </div>
+                  <button type="button" className="authSecondaryBtn" onClick={() => void Promise.all([loadAdminRequests(), loadAdminUsers()])} disabled={adminBusy}>
+                    Refresh
+                  </button>
+                </header>
+                {adminMessage && <div className="profileMessage">{adminMessage}</div>}
+                <div className="adminSectionTabs">
+                  <button
+                    type="button"
+                    className={adminSection === 'verifications' ? 'authSubmit adminTabBtn' : 'authSecondaryBtn adminTabBtn'}
+                    onClick={() => setAdminSection('verifications')}
+                  >
+                    Verification requests
+                  </button>
+                  <button
+                    type="button"
+                    className={adminSection === 'roles' ? 'authSubmit adminTabBtn' : 'authSecondaryBtn adminTabBtn'}
+                    onClick={() => setAdminSection('roles')}
+                  >
+                    Assign moderator role
+                  </button>
+                </div>
+
+                {adminSection === 'roles' && (
+                  <div className="adminEditorCard">
+                    <h3>Assign moderator role</h3>
+                    <div className="adminList">
+                      {adminUsers
+                        .filter((user) => user.role !== 'Admin')
+                        .map((user) => (
+                          <article className="adminItemCard adminItemCard--compact" key={user.id}>
+                            <div>
+                              <strong>{user.firstName} {user.lastName}</strong>
+                              <p>{user.email}</p>
+                              <p>Current role: {user.role}</p>
+                            </div>
+                            <div className="adminActions">
+                              <button
+                                type="button"
+                                className="authSecondaryBtn"
+                                onClick={() => void updateUserRole(user.id, 'User')}
+                                disabled={adminBusy || user.role === 'User'}
+                              >
+                                Set User
+                              </button>
+                              <button
+                                type="button"
+                                className="authSubmit"
+                                onClick={() => void updateUserRole(user.id, 'Moderator')}
+                                disabled={adminBusy || user.role === 'Moderator'}
+                              >
+                                Set Moderator
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {adminSection === 'verifications' && (
+                  <>
+                    {adminBusy && adminRequests.length === 0 ? <div className="loadingStateCard"><span className="loadingSpinner" aria-hidden="true" /><strong>Loading requests...</strong></div> : null}
+                    <div className="adminList">
+                      {adminRequests.length === 0 && !adminBusy ? <div className="historyEmptyState">No pending requests.</div> : null}
+                      {adminRequests.map((request) => (
+                        <article className="adminItemCard adminDocCard" key={request.id}>
+                          <div className="adminDocInfo">
+                            <strong>{request.userFirstName ?? 'User'} {request.userLastName ?? ''}</strong>
+                            <p>{request.userEmail ?? request.userId}</p>
+                            <p>Requested: {new Date(request.createdAt).toLocaleString()}</p>
+                          </div>
+                          <div className="adminDocMediaWrap">
+                            {adminDocumentPreviews[request.id] ? (
+                              <img src={adminDocumentPreviews[request.id]} alt="Document preview" className="adminDocPreview" loading="lazy" />
+                            ) : (
+                              <p className="adminDocPreviewPlaceholder">Preview will appear when document is loaded.</p>
+                            )}
+                            <button type="button" className="authSecondaryBtn" onClick={() => void openAdminDocument(request.id)}>
+                              Open document
+                            </button>
+                          </div>
+                          <div className="adminActions adminActionsColumn">
+                            <button type="button" className="authSubmit" onClick={() => void processVerificationRequest(request.id, 'approve')} disabled={adminBusy}>
+                              Approve
+                            </button>
+                            <button type="button" className="logoutBtn dangerBtn" onClick={() => void processVerificationRequest(request.id, 'reject')} disabled={adminBusy}>
+                              Reject
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </section>
+            )}
+
             {activeScreen === 'esports' && (
               <div className="gridCards">
                 {['Counter-Strike 2', 'Dota 2', 'League of Legends', 'Valorant'].map((title) => (
@@ -2212,6 +2764,41 @@ function App() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {adminDocumentModal && (
+        <div
+          className="modalOverlay"
+          role="presentation"
+          onClick={() => {
+            URL.revokeObjectURL(adminDocumentModal.url);
+            setAdminDocumentModal(null);
+          }}
+        >
+          <div className="modalCard adminDocumentModalCard" role="dialog" aria-modal="true" aria-label="Document preview" onClick={(e) => e.stopPropagation()}>
+            <header className="modalHeader">
+              <h3>Document preview</h3>
+              <button
+                type="button"
+                className="modalCloseBtn"
+                onClick={() => {
+                  URL.revokeObjectURL(adminDocumentModal.url);
+                  setAdminDocumentModal(null);
+                }}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </header>
+            {adminDocumentModal.isImage ? (
+              <img src={adminDocumentModal.url} alt="Full document preview" className="adminDocumentModalImage" />
+            ) : (
+              <div className="adminDocumentModalFallback">
+                <p>This document is not an image preview.</p>
+                <a href={adminDocumentModal.url} target="_blank" rel="noreferrer">Open file in a new tab</a>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2361,6 +2948,42 @@ function App() {
           </div>
         </div>
       )}
+      {verificationDecision && (
+        <div className="modalOverlay" role="presentation">
+          <div className="modalCard" role="dialog" aria-modal="true" aria-label="Verification status update" onClick={(e) => e.stopPropagation()}>
+            <header className="modalHeader">
+              <h3>Verification update</h3>
+            </header>
+            <p className="authHint">{verificationDecision.message}</p>
+            <div className="modalActions">
+              {verificationDecision.action === 'dashboard' ? (
+                <button
+                  type="button"
+                  className="depositBtn"
+                  onClick={() => {
+                    setVerificationDecision(null);
+                    setActiveScreen('dashboard');
+                    void loadProfile();
+                  }}
+                >
+                  Go to dashboard
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="depositBtn"
+                  onClick={() => {
+                    setVerificationDecision(null);
+                    logout();
+                  }}
+                >
+                  Go to start screen
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {profileMessage && <div className="profileToast">{profileMessage}</div>}
       {betPlacementMessage && <div className="profileToast betToast">{betPlacementMessage}</div>}
     </div>
@@ -2468,9 +3091,96 @@ function calcTotalVolume(bets: BetDto[]): string {
   return bets.reduce((acc, b) => acc + b.stake, 0).toFixed(2);
 }
 
-function parseToken(token: string | null): { fullName: string; initials: string } {
+function createEmptyModeratorForm(): ManageSportEventRequest {
+  return {
+    externalId: '',
+    homeTeam: '',
+    awayTeam: '',
+    eventDate: new Date().toISOString(),
+    sportKey: 'soccer',
+    homeWinOdds: 1.8,
+    drawOdds: 3.2,
+    awayWinOdds: 2.1,
+    homeScore: null,
+    awayScore: null,
+    matchStatus: 'NS',
+    matchMinute: null,
+  };
+}
+
+function parseNumberOrNull(value: string): number | null {
+  if (!value.trim()) {
+    return null;
+  }
+  const next = Number(value);
+  return Number.isFinite(next) ? next : null;
+}
+
+function toDateTimeLocalValue(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const local = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+  return local.toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocalValue(localValue: string): string {
+  if (!localValue) {
+    return new Date().toISOString();
+  }
+  const date = new Date(localValue);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
+function mapEventToModeratorForm(event: SportEventDto): ManageSportEventRequest {
+  return {
+    externalId: event.externalId,
+    homeTeam: event.homeTeam,
+    awayTeam: event.awayTeam,
+    eventDate: event.eventDate,
+    sportKey: event.sportKey,
+    homeWinOdds: event.homeWinOdds,
+    drawOdds: event.drawOdds,
+    awayWinOdds: event.awayWinOdds,
+    homeScore: event.homeScore ?? null,
+    awayScore: event.awayScore ?? null,
+    matchStatus: event.matchStatus ?? 'NS',
+    matchMinute: event.matchMinute ?? null,
+  };
+}
+
+function buildSyncedModeratorPayload(event: SportEventDto): ManageSportEventRequest {
+  const payload = mapEventToModeratorForm(event);
+  const eventStart = new Date(event.eventDate).getTime();
+  const now = Date.now();
+  if (Number.isNaN(eventStart) || now < eventStart) {
+    payload.matchStatus = 'NS';
+    payload.matchMinute = null;
+    return payload;
+  }
+
+  const elapsedMinutes = Math.max(0, Math.floor((now - eventStart) / 60000));
+  if (elapsedMinutes < 45) {
+    payload.matchStatus = '1H';
+    payload.matchMinute = elapsedMinutes;
+  } else if (elapsedMinutes < 60) {
+    payload.matchStatus = 'HT';
+    payload.matchMinute = 45;
+  } else if (elapsedMinutes < 105) {
+    payload.matchStatus = '2H';
+    payload.matchMinute = Math.min(90, elapsedMinutes - 15);
+  } else {
+    payload.matchStatus = 'FT';
+    payload.matchMinute = 90;
+  }
+
+  return payload;
+}
+
+function parseToken(token: string | null): { fullName: string; initials: string; role: string } {
   if (!token) {
-    return { fullName: 'Guest User', initials: 'GU' };
+    return { fullName: 'Guest User', initials: 'GU', role: 'Guest' };
   }
 
   try {
@@ -2478,10 +3188,11 @@ function parseToken(token: string | null): { fullName: string; initials: string 
     const decoded = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, string>;
     const firstName = decoded.given_name ?? decoded['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname'] ?? 'John';
     const lastName = decoded.family_name ?? decoded['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname'] ?? 'Doe';
+    const role = decoded.role ?? decoded['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'] ?? 'User';
     const initials = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
-    return { fullName: `${firstName} ${lastName}`, initials };
+    return { fullName: `${firstName} ${lastName}`, initials, role };
   } catch {
-    return { fullName: 'John Doe', initials: 'JD' };
+    return { fullName: 'John Doe', initials: 'JD', role: 'User' };
   }
 }
 
@@ -2604,17 +3315,64 @@ function isLiveOrInProgress(eventDate: string, status: string | null | undefined
   return isLiveMatchStatus(status) || isRecentPotentialLiveByTime(eventDate, status);
 }
 
+function formatMatchPhaseLabel(status: string | null | undefined): string {
+  const normalized = normalizeMatchStatus(status);
+  if (normalized === '1H') return '1st half';
+  if (normalized === 'HT') return 'Halftime';
+  if (normalized === '2H') return '2nd half';
+  if (normalized === 'ET') return 'Extra time';
+  if (normalized === 'P') return 'Penalties';
+  if (normalized === 'FT') return 'Finished';
+  if (normalized === 'NS') return 'Not started';
+  return normalized || 'Live';
+}
+
+function formatDashboardPhaseLabel(event: SportEventDto): string {
+  const normalized = normalizeMatchStatus(event.matchStatus);
+  if (normalized === 'NS' || normalized === 'NOTSTARTED') {
+    const startAt = new Date(event.eventDate);
+    if (!Number.isNaN(startAt.getTime())) {
+      return startAt.toLocaleString([], {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+  }
+
+  return formatMatchPhaseLabel(event.matchStatus);
+}
+
+function normalizeDocumentBlob(blob: Blob, originalUrl: string | undefined): Blob {
+  if (blob.type && blob.type !== 'application/octet-stream') {
+    return blob;
+  }
+
+  const guessed = guessMimeFromUrl(originalUrl);
+  if (!guessed) {
+    return blob;
+  }
+
+  return new Blob([blob], { type: guessed });
+}
+
+function guessMimeFromUrl(url: string | undefined): string | null {
+  if (!url) {
+    return null;
+  }
+  const normalized = url.toLowerCase();
+  if (normalized.endsWith(".png")) return "image/png";
+  if (normalized.endsWith(".jpg") || normalized.endsWith(".jpeg")) return "image/jpeg";
+  if (normalized.endsWith(".webp")) return "image/webp";
+  if (normalized.endsWith(".gif")) return "image/gif";
+  if (normalized.endsWith(".pdf")) return "application/pdf";
+  return null;
+}
+
 function formatWelcomeMatchMeta(event: SportEventDto): string {
   if (isLiveOrInProgress(event.eventDate, event.matchStatus)) {
-    if (event.matchMinute != null) {
-      return `Live ${event.matchMinute}'`;
-    }
-
-    if (event.homeScore != null && event.awayScore != null) {
-      return `Live ${event.homeScore}:${event.awayScore}`;
-    }
-
-    return 'Live now';
+    return 'LIVE';
   }
 
   if (isFinishedMatchStatus(event.matchStatus)) {
@@ -2634,11 +3392,34 @@ function formatWelcomeMatchMeta(event: SportEventDto): string {
 }
 
 function formatMatchClock(event: SportEventDto, nowMs: number): string {
-  if (!isLiveOrInProgress(event.eventDate, event.matchStatus) || event.matchMinute == null) {
+  const normalizedStatus = normalizeMatchStatus(event.matchStatus);
+  if (normalizedStatus === 'HT') {
+    return '';
+  }
+  if (normalizedStatus === 'NS') {
+    const startTime = new Date(event.eventDate);
+    if (!Number.isNaN(startTime.getTime())) {
+      return startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
     return '--:--';
   }
 
-  const baseMinute = Math.max(0, event.matchMinute);
+  if (!isLiveOrInProgress(event.eventDate, event.matchStatus) || event.matchMinute == null) {
+    if (normalizedStatus === '1H') {
+      return '0:00';
+    }
+    if (normalizedStatus === '2H') {
+      return '45:00';
+    }
+    return '--:--';
+  }
+
+  let baseMinute = Math.max(0, event.matchMinute);
+  if (normalizedStatus === '1H') {
+    baseMinute = Math.max(0, baseMinute);
+  } else if (normalizedStatus === '2H') {
+    baseMinute = Math.max(45, baseMinute);
+  }
   const baseTimeMs = new Date(event.lastUpdated).getTime();
   if (Number.isNaN(baseTimeMs)) {
     return `${baseMinute}:00`;
@@ -2716,7 +3497,7 @@ function buildSportCards(source: SportEventDto[]): Array<{ title: string; total:
     .sort((a, b) => b.total - a.total);
 }
 
-type SidebarIconName = 'logo' | 'dashboard' | 'sports' | 'tournaments' | 'wallet' | 'profile' | 'history' | 'slip';
+type SidebarIconName = 'logo' | 'dashboard' | 'sports' | 'tournaments' | 'wallet' | 'profile' | 'history' | 'moderator' | 'admin' | 'slip';
 
 function SidebarIcon({ name }: { name: SidebarIconName }) {
   if (name === 'logo') {
@@ -2785,6 +3566,25 @@ function SidebarIcon({ name }: { name: SidebarIconName }) {
         <path d="M4.5 6.5v4h4" />
         <path d="M6.8 10a7 7 0 1 0 1.7-3" />
         <path d="M12 8.5v3.7l2.7 1.8" />
+      </svg>
+    );
+  }
+
+  if (name === 'moderator') {
+    return (
+      <svg className="navIconSvg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3.8l7.2 3v5.2c0 4.2-2.6 6.9-7.2 8.4-4.6-1.5-7.2-4.2-7.2-8.4V6.8z" />
+        <path d="M9 12l2 2 4-4" />
+      </svg>
+    );
+  }
+
+  if (name === 'admin') {
+    return (
+      <svg className="navIconSvg" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4.5" y="6" width="15" height="12" rx="2.5" />
+        <path d="M8 10h8M8 14h5" />
+        <circle cx="16.8" cy="14.2" r="1.2" />
       </svg>
     );
   }
