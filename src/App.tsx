@@ -460,12 +460,17 @@ function App() {
   }
 
   useEffect(() => {
-    if (token) {
+    if (token || authView !== 'welcome') {
       return;
     }
 
     void loadWelcomeEvents();
-  }, [token]);
+    const interval = window.setInterval(() => {
+      void loadWelcomeEvents();
+    }, 15000);
+
+    return () => window.clearInterval(interval);
+  }, [token, authView]);
 
   useEffect(() => {
     if (!token) {
