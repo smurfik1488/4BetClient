@@ -587,18 +587,30 @@ html {
   font-weight: 600;
 }
 
-.profileToast {
+.toastStack {
   position: fixed;
-  right: 22px;
-  top: 82px;
-  z-index: 220;
-  border: 1px solid #36578f;
-  background: linear-gradient(135deg, #152345, #101a34);
-  color: #cfe1ff;
-  padding: 10px 14px;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  right: 18px;
+  top: 96px;
+  z-index: 260;
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+  pointer-events: none;
+}
+
+.profileToast {
+  width: min(360px, calc(100vw - 24px));
+  border: 1px solid #355ea8;
+  background: rgba(16, 25, 49, 0.92);
+  backdrop-filter: blur(6px);
+  color: #e4eeff;
+  padding: 12px 14px;
+  border-radius: 12px;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.45);
   font-weight: 600;
+  line-height: 1.35;
+  pointer-events: auto;
+  animation: toastSlideIn 220ms ease-out;
 }
 
 .profileError {
@@ -1991,6 +2003,94 @@ input:focus-visible {
   gap: 10px;
 }
 
+.historyAnalyticsCard {
+  border: 1px solid #2d3b63;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #111934, #0d1429);
+  padding: 12px;
+  margin-bottom: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.historyAnalyticsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.historyAnalyticsHeader h3 {
+  margin: 0;
+}
+
+.historyFilters {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.historyFilters label {
+  display: grid;
+  gap: 4px;
+  color: #9eb0d7;
+  font-size: 12px;
+}
+
+.historyFilters input[type="date"] {
+  border-radius: 9px;
+  border: 1px solid #2b3554;
+  background: #0f1528;
+  color: #f3f6ff;
+  padding: 8px 10px;
+}
+
+.historyApplyBtn {
+  width: auto;
+  margin-top: 0;
+  min-width: 92px;
+}
+
+.historyAnalyticsStats {
+  margin-bottom: 0;
+}
+
+.analyticsBarsWrap {
+  border: 1px solid #2b3554;
+  border-radius: 10px;
+  background: #0f162c;
+  padding: 10px;
+}
+
+.analyticsBars {
+  display: flex;
+  align-items: end;
+  gap: 6px;
+  min-height: 140px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.analyticsBarItem {
+  min-width: 38px;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+
+.analyticsBar {
+  display: block;
+  width: 100%;
+  border-radius: 6px 6px 3px 3px;
+  background: linear-gradient(180deg, #2be3bf, #267eff);
+}
+
+.analyticsBarItem small {
+  color: #91a5d4;
+  font-size: 10px;
+}
+
 .historyEmptyState {
   border: 1px dashed #334067;
   border-radius: 10px;
@@ -2158,6 +2258,15 @@ input:focus-visible {
 }
 
 @media (max-width: 840px) {
+  .historyAnalyticsHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .historyFilters {
+    width: 100%;
+  }
+
   .historyCardMetaGrid {
     grid-template-columns: 1fr;
   }
@@ -2266,10 +2375,30 @@ input:focus-visible {
 }
 
 .betToast {
-  top: 132px;
   border-color: #2d7f5f;
-  background: linear-gradient(135deg, #102b23, #0f241f);
+  background: rgba(14, 40, 33, 0.94);
   color: #baf6d8;
+}
+
+.moderatorToast {
+  border-color: #2c82c0;
+  background: rgba(13, 32, 53, 0.94);
+}
+
+.adminToast {
+  border-color: #4f84ee;
+  background: rgba(14, 31, 58, 0.94);
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .goalPulse {
@@ -2361,6 +2490,18 @@ input:focus-visible {
   gap: 10px;
 }
 
+.adminPanelHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.adminHeaderPrimaryBtn {
+  width: auto;
+  margin-top: 0;
+  padding-inline: 16px;
+}
+
 .adminPanelHeader h2 {
   margin: 0;
 }
@@ -2384,6 +2525,21 @@ input:focus-visible {
   margin: 0;
 }
 
+.moderatorModalCard {
+  width: min(980px, 100%);
+}
+
+.adminFormHint {
+  margin: -2px 0 2px;
+  color: #8ea2ca;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.adminFormHint code {
+  color: #cddcff;
+}
+
 .adminFormGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2397,6 +2553,26 @@ input:focus-visible {
   background: #0f1528;
   color: #f3f6ff;
   padding: 10px 12px;
+}
+
+.adminFormGrid select {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #2b3554;
+  background: #0f1528;
+  color: #f3f6ff;
+  padding: 10px 12px;
+}
+
+.adminField {
+  display: grid;
+  gap: 6px;
+}
+
+.adminField span {
+  color: #9db0d8;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .adminList {
@@ -2472,12 +2648,32 @@ input:focus-visible {
 }
 
 .adminItemCard--compact {
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 8px;
+  row-gap: 0;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.adminItemCard--compact .adminActions {
+  margin-left: 0;
+  justify-content: flex-end;
+  align-self: start;
+  padding-top: 0;
+}
+
+.adminItemCard--compact .adminActions .authSubmit,
+.adminItemCard--compact .adminActions .authSecondaryBtn {
+  width: auto;
+  margin-top: 0;
+  white-space: nowrap;
 }
 
 .adminDocCard {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(220px, 280px) 170px;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 280px);
   align-items: start;
   gap: 14px;
 }
@@ -2493,8 +2689,15 @@ input:focus-visible {
 
 .adminActionsColumn {
   display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-content: start;
   gap: 10px;
+}
+
+.adminActionsColumn button {
+  width: 100%;
+  margin-top: 0;
 }
 
 .dangerBtn {
@@ -2572,6 +2775,17 @@ input:focus-visible {
 }
 
 @media (max-width: 980px) {
+  .adminPanelHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .adminPanelHeaderActions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .adminFormGrid {
     grid-template-columns: 1fr 1fr;
   }
@@ -2581,12 +2795,40 @@ input:focus-visible {
     align-items: flex-start;
   }
 
+  .adminItemCard--compact {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 6px;
+    column-gap: 8px;
+  }
+
+  .adminItemCard--compact .adminActions {
+    margin-left: 0;
+    width: auto;
+    justify-content: flex-end;
+  }
+
   .adminDocCard {
     grid-template-columns: 1fr;
   }
 
   .adminActionsColumn {
     width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .adminItemCard--compact {
+    grid-template-columns: 1fr;
+  }
+
+  .adminItemCard--compact .adminActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .adminActionsColumn {
     grid-template-columns: 1fr;
   }
 }

@@ -3,6 +3,7 @@ import axios from 'axios';
 import * as signalR from '@microsoft/signalr';
 import type {
   AdminUserDto,
+  BetAnalyticsDto,
   AdminVerificationRequestDto,
   BetDto,
   BetLegDto,
@@ -95,6 +96,11 @@ function App() {
   const [events, setEvents] = useState<SportEventDto[]>([]);
   const [isEventsLoading, setIsEventsLoading] = useState(true);
   const [myBets, setMyBets] = useState<BetDto[]>([]);
+  const [betAnalytics, setBetAnalytics] = useState<BetAnalyticsDto | null>(null);
+  const [analyticsBusy, setAnalyticsBusy] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [historyFrom, setHistoryFrom] = useState(() => toDateInputValue(new Date(Date.now() - 29 * 86400000)));
+  const [historyTo, setHistoryTo] = useState(() => toDateInputValue(new Date()));
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [isWalletLoading, setIsWalletLoading] = useState(true);
   const [isProfileLoading, setIsProfileLoading] = useState(() => Boolean(getToken()));
@@ -138,6 +144,7 @@ function App() {
   const [clockNowMs, setClockNowMs] = useState(() => Date.now());
   const [moderatorForm, setModeratorForm] = useState<ManageSportEventRequest>(() => createEmptyModeratorForm());
   const [moderatorEditEventId, setModeratorEditEventId] = useState<string | null>(null);
+  const [isModeratorEditorOpen, setIsModeratorEditorOpen] = useState(false);
   const [moderatorBusy, setModeratorBusy] = useState(false);
   const [moderatorMessage, setModeratorMessage] = useState<string | null>(null);
   const [adminRequests, setAdminRequests] = useState<AdminVerificationRequestDto[]>([]);
@@ -278,6 +285,35 @@ function App() {
     }
   }, []);
 
+  const loadBetAnalytics = useCallback(async (fromDate: string, toDate: string) => {
+    if (!getToken()) {
+      setBetAnalytics(null);
+      return;
+    }
+
+    if (!fromDate || !toDate) {
+      setAnalyticsError('Select both from/to dates.');
+      return;
+    }
+
+    setAnalyticsBusy(true);
+    setAnalyticsError(null);
+    try {
+      const fromIso = new Date(`${fromDate}T00:00:00`).toISOString();
+      const toIso = new Date(`${toDate}T23:59:59`).toISOString();
+      const res = await api.get<BetAnalyticsDto>(`/bet/analytics/mine?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`);
+      setBetAnalytics(res.data);
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        localStorage.removeItem('token');
+        setToken(null);
+      }
+      setAnalyticsError('Unable to load analytics for selected date range.');
+    } finally {
+      setAnalyticsBusy(false);
+    }
+  }, []);
+
   const loadProfile = useCallback(async () => {
     if (!getToken()) {
       setProfile(null);
@@ -319,6 +355,30 @@ function App() {
 
     return () => clearTimeout(timer);
   }, [profileMessage]);
+
+  useEffect(() => {
+    if (!moderatorMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setModeratorMessage(null);
+    }, 2400);
+
+    return () => clearTimeout(timer);
+  }, [moderatorMessage]);
+
+  useEffect(() => {
+    if (!adminMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setAdminMessage(null);
+    }, 2400);
+
+    return () => clearTimeout(timer);
+  }, [adminMessage]);
 
   useEffect(() => {
     if (!betPlacementMessage) {
@@ -386,13 +446,15 @@ function App() {
     }
   }
 
-  async function loadAdminRequests() {
+  async function loadAdminRequests(showBusy = true) {
     if (!isAdmin) {
       setAdminRequests([]);
       return;
     }
 
-    setAdminBusy(true);
+    if (showBusy) {
+      setAdminBusy(true);
+    }
     try {
       const response = await api.get<AdminVerificationRequestDto[]>('/admin/verifications/pending');
       const requests = ensureArray<AdminVerificationRequestDto>(response.data);
@@ -404,7 +466,9 @@ function App() {
         setToken(null);
       }
     } finally {
-      setAdminBusy(false);
+      if (showBusy) {
+        setAdminBusy(false);
+      }
     }
   }
 
@@ -557,6 +621,7 @@ function App() {
 
       setModeratorForm(createEmptyModeratorForm());
       setModeratorEditEventId(null);
+      setIsModeratorEditorOpen(false);
       await refreshActiveEventsSnapshot();
     } catch (error) {
       if (isUnauthorizedError(error)) {
@@ -767,12 +832,13 @@ function App() {
     }
 
     void loadMyBets();
+    void loadBetAnalytics(historyFrom, historyTo);
     const interval = window.setInterval(() => {
       void loadMyBets();
     }, 15000);
 
     return () => window.clearInterval(interval);
-  }, [activeScreen, token, loadMyBets]);
+  }, [activeScreen, token, loadMyBets, loadBetAnalytics, historyFrom, historyTo]);
 
   useEffect(() => {
     if (!token || activeScreen !== 'profile') {
@@ -788,7 +854,7 @@ function App() {
     }
     void Promise.all([loadAdminRequests(), loadAdminUsers()]);
     const interval = window.setInterval(() => {
-      void Promise.all([loadAdminRequests(), loadAdminUsers()]);
+      void Promise.all([loadAdminRequests(false), loadAdminUsers()]);
     }, 10000);
     return () => window.clearInterval(interval);
   }, [activeScreen, isAdmin, token]);
@@ -2119,74 +2185,137 @@ function App() {
                   <div className="statCard"><span>Win Rate</span><strong>{calcWinRate(myBets)}%</strong></div>
                   <div className="statCard"><span>Total Volume</span><strong>${calcTotalVolume(myBets)}</strong></div>
                 </div>
-                {footballEvents.map((ev) => (
-                  <article
-                    key={ev.externalId}
-                    className={`matchCard ${eventHighlights[ev.externalId] === 'goal' ? 'goalPulse' : ''} ${eventHighlights[ev.externalId] === 'event' ? 'eventPulse' : ''}`}
-                  >
-                    <div className="matchHeader">
-                      <span className="matchHeaderStatus">
-                        {isLiveOrInProgress(ev.eventDate, ev.matchStatus) && <i className="liveIndicator" aria-hidden="true" />}
-                        {isLiveOrInProgress(ev.eventDate, ev.matchStatus) ? 'LIVE MATCH' : 'UPCOMING'}
-                      </span>
-                      <span>Football</span>
-                    </div>
-                    <div className="liveRow">
-                      <div className="teamBlock">
-                        <span className="teamLogo">
-                          <img
-                            src={resolveTeamLogoSrc(ev.homeTeamLogoUrl, ev.homeTeam)}
-                            alt={ev.homeTeam}
-                            onError={(e) => {
-                              e.currentTarget.src = buildTeamFallbackLogo(ev.homeTeam);
-                            }}
-                          />
+                {footballEvents.map((ev) => {
+                  const isLive = isLiveOrInProgress(ev.eventDate, ev.matchStatus);
+                  return isLive ? (
+                    <article
+                      key={ev.externalId}
+                      className={`matchCard ${eventHighlights[ev.externalId] === 'goal' ? 'goalPulse' : ''} ${eventHighlights[ev.externalId] === 'event' ? 'eventPulse' : ''}`}
+                    >
+                      <div className="matchHeader">
+                        <span className="matchHeaderStatus">
+                          <i className="liveIndicator" aria-hidden="true" />
+                          LIVE MATCH
                         </span>
-                        <strong>{ev.homeTeam}</strong>
+                        <span>Football</span>
                       </div>
-                      <div className="scoreCenter">
-                        <span className="scoreNumbers">{formatScore(ev.homeScore, ev.awayScore)}</span>
-                        <span className="minute">{formatMatchClock(ev, clockNowMs)}</span>
-                        <small className="matchPhase">{formatDashboardPhaseLabel(ev)}</small>
+                      <div className="liveRow">
+                        <div className="teamBlock">
+                          <span className="teamLogo">
+                            <img
+                              src={resolveTeamLogoSrc(ev.homeTeamLogoUrl, ev.homeTeam)}
+                              alt={ev.homeTeam}
+                              onError={(e) => {
+                                e.currentTarget.src = buildTeamFallbackLogo(ev.homeTeam);
+                              }}
+                            />
+                          </span>
+                          <strong>{ev.homeTeam}</strong>
+                        </div>
+                        <div className="scoreCenter">
+                          <span className="scoreNumbers">{formatScore(ev.homeScore, ev.awayScore)}</span>
+                          <span className="minute">{formatMatchClock(ev, clockNowMs)}</span>
+                          <small className="matchPhase">{formatDashboardPhaseLabel(ev)}</small>
+                        </div>
+                        <div className="teamBlock">
+                          <span className="teamLogo">
+                            <img
+                              src={resolveTeamLogoSrc(ev.awayTeamLogoUrl, ev.awayTeam)}
+                              alt={ev.awayTeam}
+                              onError={(e) => {
+                                e.currentTarget.src = buildTeamFallbackLogo(ev.awayTeam);
+                              }}
+                            />
+                          </span>
+                          <strong>{ev.awayTeam}</strong>
+                        </div>
                       </div>
-                      <div className="teamBlock">
-                        <span className="teamLogo">
-                          <img
-                            src={resolveTeamLogoSrc(ev.awayTeamLogoUrl, ev.awayTeam)}
-                            alt={ev.awayTeam}
-                            onError={(e) => {
-                              e.currentTarget.src = buildTeamFallbackLogo(ev.awayTeam);
-                            }}
-                          />
-                        </span>
-                        <strong>{ev.awayTeam}</strong>
+                      <div className="odds">
+                        <button
+                          type="button"
+                          className={isSlipSelection(ev, 0) ? 'selected' : ''}
+                          onClick={() => toggleLeg(ev, 0, ev.homeWinOdds)}
+                        >
+                          {ev.homeWinOdds.toFixed(2)}
+                        </button>
+                        <button
+                          type="button"
+                          className={isSlipSelection(ev, 1) ? 'selected' : ''}
+                          onClick={() => toggleLeg(ev, 1, ev.drawOdds)}
+                        >
+                          {ev.drawOdds.toFixed(2)}
+                        </button>
+                        <button
+                          type="button"
+                          className={isSlipSelection(ev, 2) ? 'selected' : ''}
+                          onClick={() => toggleLeg(ev, 2, ev.awayWinOdds)}
+                        >
+                          {ev.awayWinOdds.toFixed(2)}
+                        </button>
                       </div>
-                    </div>
-                    <div className="odds">
-                      <button
-                        type="button"
-                        className={isSlipSelection(ev, 0) ? 'selected' : ''}
-                        onClick={() => toggleLeg(ev, 0, ev.homeWinOdds)}
-                      >
-                        {ev.homeWinOdds.toFixed(2)}
-                      </button>
-                      <button
-                        type="button"
-                        className={isSlipSelection(ev, 1) ? 'selected' : ''}
-                        onClick={() => toggleLeg(ev, 1, ev.drawOdds)}
-                      >
-                        {ev.drawOdds.toFixed(2)}
-                      </button>
-                      <button
-                        type="button"
-                        className={isSlipSelection(ev, 2) ? 'selected' : ''}
-                        onClick={() => toggleLeg(ev, 2, ev.awayWinOdds)}
-                      >
-                        {ev.awayWinOdds.toFixed(2)}
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  ) : (
+                    <article key={ev.externalId} className="matchCard">
+                      <div className="matchHeader">
+                        <span className="matchHeaderStatus">UPCOMING</span>
+                        <span>{mapSportTitle(ev.sportKey)}</span>
+                      </div>
+                      <div className="liveRow">
+                        <div className="teamBlock">
+                          <span className="teamLogo">
+                            <img
+                              src={resolveTeamLogoSrc(ev.homeTeamLogoUrl, ev.homeTeam)}
+                              alt={ev.homeTeam}
+                              onError={(e) => {
+                                e.currentTarget.src = buildTeamFallbackLogo(ev.homeTeam);
+                              }}
+                            />
+                          </span>
+                          <strong>{ev.homeTeam}</strong>
+                        </div>
+                        <div className="sportsMatchCenter">
+                          <span className="sportsMatchVs">VS</span>
+                          <small>{new Date(ev.eventDate).toLocaleString()}</small>
+                        </div>
+                        <div className="teamBlock">
+                          <span className="teamLogo">
+                            <img
+                              src={resolveTeamLogoSrc(ev.awayTeamLogoUrl, ev.awayTeam)}
+                              alt={ev.awayTeam}
+                              onError={(e) => {
+                                e.currentTarget.src = buildTeamFallbackLogo(ev.awayTeam);
+                              }}
+                            />
+                          </span>
+                          <strong>{ev.awayTeam}</strong>
+                        </div>
+                      </div>
+                      <div className="odds">
+                        <button
+                          type="button"
+                          className={isSlipSelection(ev, 0) ? 'selected' : ''}
+                          onClick={() => toggleLeg(ev, 0, ev.homeWinOdds)}
+                        >
+                          {ev.homeWinOdds.toFixed(2)}
+                        </button>
+                        <button
+                          type="button"
+                          className={isSlipSelection(ev, 1) ? 'selected' : ''}
+                          onClick={() => toggleLeg(ev, 1, ev.drawOdds)}
+                        >
+                          {ev.drawOdds.toFixed(2)}
+                        </button>
+                        <button
+                          type="button"
+                          className={isSlipSelection(ev, 2) ? 'selected' : ''}
+                          onClick={() => toggleLeg(ev, 2, ev.awayWinOdds)}
+                        >
+                          {ev.awayWinOdds.toFixed(2)}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </>
             )}
 
@@ -2239,70 +2368,134 @@ function App() {
                     ) : selectedSportMatches.length === 0 ? (
                       <p>No matches for selected sport.</p>
                     ) : (
-                      pagedSportMatches.map((ev) => (
-                        <article key={ev.externalId} className="matchCard">
-                          <div className="matchHeader">
-                            <span className="matchHeaderStatus">
-                              {isLiveOrInProgress(ev.eventDate, ev.matchStatus) && <i className="liveIndicator" aria-hidden="true" />}
-                              {isLiveOrInProgress(ev.eventDate, ev.matchStatus) ? 'LIVE MATCH' : 'UPCOMING'}
-                            </span>
-                            <span>{selectedSportTitle}</span>
-                          </div>
-                          <div className="liveRow">
-                            <div className="teamBlock">
-                              <span className="teamLogo">
-                                <img
-                                  src={resolveTeamLogoSrc(ev.homeTeamLogoUrl, ev.homeTeam)}
-                                  alt={ev.homeTeam}
-                                  onError={(e) => {
-                                    e.currentTarget.src = buildTeamFallbackLogo(ev.homeTeam);
-                                  }}
-                                />
+                      pagedSportMatches.map((ev) => {
+                        const isLive = isLiveOrInProgress(ev.eventDate, ev.matchStatus);
+                        return isLive ? (
+                          <article key={ev.externalId} className="matchCard">
+                            <div className="matchHeader">
+                              <span className="matchHeaderStatus">
+                                <i className="liveIndicator" aria-hidden="true" />
+                                LIVE MATCH
                               </span>
-                              <strong>{ev.homeTeam}</strong>
+                              <span>{selectedSportTitle}</span>
                             </div>
-                            <div className="sportsMatchCenter">
-                              <span className="sportsMatchVs">VS</span>
-                              <small>{new Date(ev.eventDate).toLocaleString()}</small>
+                            <div className="liveRow">
+                              <div className="teamBlock">
+                                <span className="teamLogo">
+                                  <img
+                                    src={resolveTeamLogoSrc(ev.homeTeamLogoUrl, ev.homeTeam)}
+                                    alt={ev.homeTeam}
+                                    onError={(e) => {
+                                      e.currentTarget.src = buildTeamFallbackLogo(ev.homeTeam);
+                                    }}
+                                  />
+                                </span>
+                                <strong>{ev.homeTeam}</strong>
+                              </div>
+                              <div className="scoreCenter">
+                                <span className="scoreNumbers">{formatScore(ev.homeScore, ev.awayScore)}</span>
+                                <span className="minute">{formatMatchClock(ev, clockNowMs)}</span>
+                                <small className="matchPhase">{formatDashboardPhaseLabel(ev)}</small>
+                              </div>
+                              <div className="teamBlock">
+                                <span className="teamLogo">
+                                  <img
+                                    src={resolveTeamLogoSrc(ev.awayTeamLogoUrl, ev.awayTeam)}
+                                    alt={ev.awayTeam}
+                                    onError={(e) => {
+                                      e.currentTarget.src = buildTeamFallbackLogo(ev.awayTeam);
+                                    }}
+                                  />
+                                </span>
+                                <strong>{ev.awayTeam}</strong>
+                              </div>
                             </div>
-                            <div className="teamBlock">
-                              <span className="teamLogo">
-                                <img
-                                  src={resolveTeamLogoSrc(ev.awayTeamLogoUrl, ev.awayTeam)}
-                                  alt={ev.awayTeam}
-                                  onError={(e) => {
-                                    e.currentTarget.src = buildTeamFallbackLogo(ev.awayTeam);
-                                  }}
-                                />
-                              </span>
-                              <strong>{ev.awayTeam}</strong>
+                            <div className="odds">
+                              <button
+                                type="button"
+                                className={isSlipSelection(ev, 0) ? 'selected' : ''}
+                                onClick={() => toggleLeg(ev, 0, ev.homeWinOdds)}
+                              >
+                                {ev.homeWinOdds.toFixed(2)}
+                              </button>
+                              <button
+                                type="button"
+                                className={isSlipSelection(ev, 1) ? 'selected' : ''}
+                                onClick={() => toggleLeg(ev, 1, ev.drawOdds)}
+                              >
+                                {ev.drawOdds.toFixed(2)}
+                              </button>
+                              <button
+                                type="button"
+                                className={isSlipSelection(ev, 2) ? 'selected' : ''}
+                                onClick={() => toggleLeg(ev, 2, ev.awayWinOdds)}
+                              >
+                                {ev.awayWinOdds.toFixed(2)}
+                              </button>
                             </div>
-                          </div>
-                          <div className="odds">
-                            <button
-                              type="button"
-                              className={isSlipSelection(ev, 0) ? 'selected' : ''}
-                              onClick={() => toggleLeg(ev, 0, ev.homeWinOdds)}
-                            >
-                              {ev.homeWinOdds.toFixed(2)}
-                            </button>
-                            <button
-                              type="button"
-                              className={isSlipSelection(ev, 1) ? 'selected' : ''}
-                              onClick={() => toggleLeg(ev, 1, ev.drawOdds)}
-                            >
-                              {ev.drawOdds.toFixed(2)}
-                            </button>
-                            <button
-                              type="button"
-                              className={isSlipSelection(ev, 2) ? 'selected' : ''}
-                              onClick={() => toggleLeg(ev, 2, ev.awayWinOdds)}
-                            >
-                              {ev.awayWinOdds.toFixed(2)}
-                            </button>
-                          </div>
-                        </article>
-                      ))
+                          </article>
+                        ) : (
+                          <article key={ev.externalId} className="matchCard">
+                            <div className="matchHeader">
+                              <span className="matchHeaderStatus">UPCOMING</span>
+                              <span>{selectedSportTitle}</span>
+                            </div>
+                            <div className="liveRow">
+                              <div className="teamBlock">
+                                <span className="teamLogo">
+                                  <img
+                                    src={resolveTeamLogoSrc(ev.homeTeamLogoUrl, ev.homeTeam)}
+                                    alt={ev.homeTeam}
+                                    onError={(e) => {
+                                      e.currentTarget.src = buildTeamFallbackLogo(ev.homeTeam);
+                                    }}
+                                  />
+                                </span>
+                                <strong>{ev.homeTeam}</strong>
+                              </div>
+                              <div className="sportsMatchCenter">
+                                <span className="sportsMatchVs">VS</span>
+                                <small>{new Date(ev.eventDate).toLocaleString()}</small>
+                              </div>
+                              <div className="teamBlock">
+                                <span className="teamLogo">
+                                  <img
+                                    src={resolveTeamLogoSrc(ev.awayTeamLogoUrl, ev.awayTeam)}
+                                    alt={ev.awayTeam}
+                                    onError={(e) => {
+                                      e.currentTarget.src = buildTeamFallbackLogo(ev.awayTeam);
+                                    }}
+                                  />
+                                </span>
+                                <strong>{ev.awayTeam}</strong>
+                              </div>
+                            </div>
+                            <div className="odds">
+                              <button
+                                type="button"
+                                className={isSlipSelection(ev, 0) ? 'selected' : ''}
+                                onClick={() => toggleLeg(ev, 0, ev.homeWinOdds)}
+                              >
+                                {ev.homeWinOdds.toFixed(2)}
+                              </button>
+                              <button
+                                type="button"
+                                className={isSlipSelection(ev, 1) ? 'selected' : ''}
+                                onClick={() => toggleLeg(ev, 1, ev.drawOdds)}
+                              >
+                                {ev.drawOdds.toFixed(2)}
+                              </button>
+                              <button
+                                type="button"
+                                className={isSlipSelection(ev, 2) ? 'selected' : ''}
+                                onClick={() => toggleLeg(ev, 2, ev.awayWinOdds)}
+                              >
+                                {ev.awayWinOdds.toFixed(2)}
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })
                     )}
                     {selectedSportMatches.length > sportsPageSize && (
                       <div className="sportsPagination">
@@ -2329,12 +2522,59 @@ function App() {
             {activeScreen === 'history' && (
               <>
                 <h2>Betting History</h2>
-                <div className="statsRow">
-                  <div className="statCard"><span>Total Bets</span><strong>{myBets.length}</strong></div>
-                  <div className="statCard"><span>Won</span><strong>{myBets.filter((b) => b.status === 1).length}</strong></div>
-                  <div className="statCard"><span>Lost</span><strong>{myBets.filter((b) => b.status === 2).length}</strong></div>
-                  <div className="statCard"><span>Pending</span><strong>{myBets.filter((b) => b.status === 0).length}</strong></div>
-                </div>
+                <section className="historyAnalyticsCard">
+                  <div className="historyAnalyticsHeader">
+                    <h3>Analytics</h3>
+                    <div className="historyFilters">
+                      <label>
+                        From
+                        <input type="date" value={historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} />
+                      </label>
+                      <label>
+                        To
+                        <input type="date" value={historyTo} onChange={(e) => setHistoryTo(e.target.value)} />
+                      </label>
+                      <button
+                        type="button"
+                        className="authSecondaryBtn historyApplyBtn"
+                        onClick={() => void loadBetAnalytics(historyFrom, historyTo)}
+                        disabled={analyticsBusy}
+                      >
+                        {analyticsBusy ? 'Loading...' : 'Apply'}
+                      </button>
+                    </div>
+                  </div>
+                  {analyticsError ? <p className="profileError">{analyticsError}</p> : null}
+                  {betAnalytics && (
+                    <>
+                      <div className="statsRow historyAnalyticsStats">
+                        <div className="statCard"><span>Total bets</span><strong>{betAnalytics.totalBets}</strong></div>
+                        <div className="statCard"><span>Stake volume</span><strong>${Number(betAnalytics.totalStake).toFixed(2)}</strong></div>
+                        <div className="statCard"><span>Payout</span><strong>${Number(betAnalytics.totalPayout).toFixed(2)}</strong></div>
+                        <div className="statCard"><span>Net</span><strong>${Number(betAnalytics.net).toFixed(2)}</strong></div>
+                        <div className="statCard"><span>Win rate</span><strong>{betAnalytics.winRatePercent.toFixed(1)}%</strong></div>
+                      </div>
+                      <div className="analyticsBarsWrap" role="img" aria-label="Daily bets trend chart">
+                        {betAnalytics.points.length === 0 ? (
+                          <p className="historyEmptyState">No analytics data in selected range.</p>
+                        ) : (
+                          <div className="analyticsBars">
+                            {betAnalytics.points.map((point) => (
+                              <div key={point.dayUtc} className="analyticsBarItem">
+                                <span
+                                  className="analyticsBar"
+                                  style={{ height: `${Math.max(8, (point.betsCount / Math.max(...betAnalytics.points.map((p) => p.betsCount), 1)) * 110)}px` }}
+                                  title={`${new Date(point.dayUtc).toLocaleDateString()}: ${point.betsCount} bets`}
+                                />
+                                <small>{new Date(point.dayUtc).toLocaleDateString([], { day: '2-digit', month: '2-digit' })}</small>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </section>
                 <div className="historyList" role="list">
                   {myBets.length === 0 && (
                     <div className="historyEmptyState">You have not placed bets yet.</div>
@@ -2530,36 +2770,24 @@ function App() {
                     <h2>Moderator panel</h2>
                     <p>Manage events, odds, scores, and match timer state.</p>
                   </div>
-                  <button type="button" className="authSecondaryBtn" onClick={() => void refreshActiveEventsSnapshot()} disabled={moderatorBusy}>
-                    Refresh list
-                  </button>
+                  <div className="adminPanelHeaderActions">
+                    <button
+                      type="button"
+                      className="authSubmit adminHeaderPrimaryBtn"
+                      onClick={() => {
+                        setModeratorForm(createEmptyModeratorForm());
+                        setModeratorEditEventId(null);
+                        setIsModeratorEditorOpen(true);
+                      }}
+                      disabled={moderatorBusy}
+                    >
+                      Add event
+                    </button>
+                    <button type="button" className="authSecondaryBtn" onClick={() => void refreshActiveEventsSnapshot()} disabled={moderatorBusy}>
+                      Refresh list
+                    </button>
+                  </div>
                 </header>
-                {moderatorMessage && <div className="profileMessage">{moderatorMessage}</div>}
-                <div className="adminEditorCard">
-                  <h3>{moderatorEditEventId ? 'Edit event' : 'Add event'}</h3>
-                  <div className="adminFormGrid">
-                    <input value={moderatorForm.externalId} onChange={(e) => setModeratorForm((prev) => ({ ...prev, externalId: e.target.value }))} placeholder="External ID" />
-                    <input value={moderatorForm.sportKey} onChange={(e) => setModeratorForm((prev) => ({ ...prev, sportKey: e.target.value }))} placeholder="Sport key (soccer_epl)" />
-                    <input value={moderatorForm.homeTeam} onChange={(e) => setModeratorForm((prev) => ({ ...prev, homeTeam: e.target.value }))} placeholder="Home team" />
-                    <input value={moderatorForm.awayTeam} onChange={(e) => setModeratorForm((prev) => ({ ...prev, awayTeam: e.target.value }))} placeholder="Away team" />
-                    <input type="datetime-local" value={toDateTimeLocalValue(moderatorForm.eventDate)} onChange={(e) => setModeratorForm((prev) => ({ ...prev, eventDate: fromDateTimeLocalValue(e.target.value) }))} />
-                    <input value={moderatorForm.matchStatus ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, matchStatus: e.target.value }))} placeholder="Phase (1H/HT/2H/FT)" />
-                    <input type="number" min={0} value={moderatorForm.matchMinute ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, matchMinute: parseNumberOrNull(e.target.value) }))} placeholder="Minute" />
-                    <input type="number" min={0} value={moderatorForm.homeScore ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, homeScore: parseNumberOrNull(e.target.value) }))} placeholder="Home score" />
-                    <input type="number" min={0} value={moderatorForm.awayScore ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, awayScore: parseNumberOrNull(e.target.value) }))} placeholder="Away score" />
-                    <input type="number" min={1} step="0.01" value={moderatorForm.homeWinOdds} onChange={(e) => setModeratorForm((prev) => ({ ...prev, homeWinOdds: Number(e.target.value) || 1 }))} placeholder="Home odds" />
-                    <input type="number" min={1} step="0.01" value={moderatorForm.drawOdds} onChange={(e) => setModeratorForm((prev) => ({ ...prev, drawOdds: Number(e.target.value) || 1 }))} placeholder="Draw odds" />
-                    <input type="number" min={1} step="0.01" value={moderatorForm.awayWinOdds} onChange={(e) => setModeratorForm((prev) => ({ ...prev, awayWinOdds: Number(e.target.value) || 1 }))} placeholder="Away odds" />
-                  </div>
-                  <div className="adminActions">
-                    <button type="button" className="authSubmit" onClick={() => void submitModeratorEvent()} disabled={moderatorBusy}>
-                      {moderatorBusy ? 'Saving…' : moderatorEditEventId ? 'Update event' : 'Add event'}
-                    </button>
-                    <button type="button" className="authSecondaryBtn" onClick={() => { setModeratorForm(createEmptyModeratorForm()); setModeratorEditEventId(null); }} disabled={moderatorBusy}>
-                      Clear
-                    </button>
-                  </div>
-                </div>
                 <div className="adminList">
                   {events.map((event) => (
                     <article className="adminItemCard" key={event.id}>
@@ -2569,7 +2797,15 @@ function App() {
                         <p>{formatMatchPhaseLabel(event.matchStatus)} {event.matchMinute != null ? `- ${event.matchMinute}'` : ''} | {formatScore(event.homeScore, event.awayScore)}</p>
                       </div>
                       <div className="adminActions">
-                        <button type="button" className="authSecondaryBtn" onClick={() => { setModeratorEditEventId(event.id); setModeratorForm(mapEventToModeratorForm(event)); }}>
+                        <button
+                          type="button"
+                          className="authSecondaryBtn"
+                          onClick={() => {
+                            setModeratorEditEventId(event.id);
+                            setModeratorForm(mapEventToModeratorForm(event));
+                            setIsModeratorEditorOpen(true);
+                          }}
+                        >
                           Edit
                         </button>
                         <button type="button" className="authSecondaryBtn" onClick={() => void syncTimerForEvent(event)} disabled={moderatorBusy}>
@@ -2582,6 +2818,105 @@ function App() {
                     </article>
                   ))}
                 </div>
+                {isModeratorEditorOpen && (
+                  <div className="modalOverlay" role="dialog" aria-modal="true" aria-label={moderatorEditEventId ? 'Edit event' : 'Add event'}>
+                    <div className="modalCard moderatorModalCard">
+                      <div className="modalHeader">
+                        <h3>{moderatorEditEventId ? 'Edit event' : 'Add event'}</h3>
+                        <button
+                          type="button"
+                          className="modalCloseBtn"
+                          onClick={() => {
+                            setIsModeratorEditorOpen(false);
+                            setModeratorForm(createEmptyModeratorForm());
+                            setModeratorEditEventId(null);
+                          }}
+                          aria-label="Close event form"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <p className="adminFormHint">Use tournament key format like <code>soccer_epl</code> or <code>soccer_uefa_champs_league</code>. Leave minute empty before kickoff/at halftime/fulltime.</p>
+                      <div className="adminFormGrid">
+                        <label className="adminField">
+                          <span>Tournament</span>
+                          <input
+                            list="moderatorTournamentOptions"
+                            value={moderatorForm.sportKey}
+                            onChange={(e) => setModeratorForm((prev) => ({ ...prev, sportKey: e.target.value }))}
+                            placeholder="soccer_epl"
+                          />
+                          <datalist id="moderatorTournamentOptions">
+                            {MODERATOR_TOURNAMENT_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value} label={option.label} />
+                            ))}
+                          </datalist>
+                        </label>
+                        <label className="adminField">
+                          <span>Home team</span>
+                          <input value={moderatorForm.homeTeam} onChange={(e) => setModeratorForm((prev) => ({ ...prev, homeTeam: e.target.value }))} placeholder="Home team" />
+                        </label>
+                        <label className="adminField">
+                          <span>Away team</span>
+                          <input value={moderatorForm.awayTeam} onChange={(e) => setModeratorForm((prev) => ({ ...prev, awayTeam: e.target.value }))} placeholder="Away team" />
+                        </label>
+                        <label className="adminField">
+                          <span>Start time</span>
+                          <input type="datetime-local" value={toDateTimeLocalValue(moderatorForm.eventDate)} onChange={(e) => setModeratorForm((prev) => ({ ...prev, eventDate: fromDateTimeLocalValue(e.target.value) }))} />
+                        </label>
+                        <label className="adminField">
+                          <span>Match phase</span>
+                          <select value={moderatorForm.matchStatus ?? 'NS'} onChange={(e) => setModeratorForm((prev) => ({ ...prev, matchStatus: e.target.value }))}>
+                            {MATCH_PHASE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="adminField">
+                          <span>Minute</span>
+                          <input type="number" min={0} value={moderatorForm.matchMinute ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, matchMinute: parseNumberOrNull(e.target.value) }))} placeholder="Minute" />
+                        </label>
+                        <label className="adminField">
+                          <span>Home score</span>
+                          <input type="number" min={0} value={moderatorForm.homeScore ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, homeScore: parseNumberOrNull(e.target.value) }))} placeholder="Home score" />
+                        </label>
+                        <label className="adminField">
+                          <span>Away score</span>
+                          <input type="number" min={0} value={moderatorForm.awayScore ?? ''} onChange={(e) => setModeratorForm((prev) => ({ ...prev, awayScore: parseNumberOrNull(e.target.value) }))} placeholder="Away score" />
+                        </label>
+                        <label className="adminField">
+                          <span>Home odds</span>
+                          <input type="number" min={1} step="0.01" value={moderatorForm.homeWinOdds} onChange={(e) => setModeratorForm((prev) => ({ ...prev, homeWinOdds: Number(e.target.value) || 1 }))} placeholder="1.80" />
+                        </label>
+                        <label className="adminField">
+                          <span>Draw odds</span>
+                          <input type="number" min={1} step="0.01" value={moderatorForm.drawOdds} onChange={(e) => setModeratorForm((prev) => ({ ...prev, drawOdds: Number(e.target.value) || 1 }))} placeholder="3.20" />
+                        </label>
+                        <label className="adminField">
+                          <span>Away odds</span>
+                          <input type="number" min={1} step="0.01" value={moderatorForm.awayWinOdds} onChange={(e) => setModeratorForm((prev) => ({ ...prev, awayWinOdds: Number(e.target.value) || 1 }))} placeholder="2.10" />
+                        </label>
+                      </div>
+                      <div className="adminActions">
+                        <button type="button" className="authSubmit" onClick={() => void submitModeratorEvent()} disabled={moderatorBusy}>
+                          {moderatorBusy ? 'Saving…' : moderatorEditEventId ? 'Update event' : 'Add event'}
+                        </button>
+                        <button
+                          type="button"
+                          className="authSecondaryBtn"
+                          onClick={() => {
+                            setIsModeratorEditorOpen(false);
+                            setModeratorForm(createEmptyModeratorForm());
+                            setModeratorEditEventId(null);
+                          }}
+                          disabled={moderatorBusy}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </section>
             )}
 
@@ -2596,7 +2931,6 @@ function App() {
                     Refresh
                   </button>
                 </header>
-                {adminMessage && <div className="profileMessage">{adminMessage}</div>}
                 <div className="adminSectionTabs">
                   <button
                     type="button"
@@ -2628,22 +2962,25 @@ function App() {
                               <p>Current role: {user.role}</p>
                             </div>
                             <div className="adminActions">
-                              <button
-                                type="button"
-                                className="authSecondaryBtn"
-                                onClick={() => void updateUserRole(user.id, 'User')}
-                                disabled={adminBusy || user.role === 'User'}
-                              >
-                                Set User
-                              </button>
-                              <button
-                                type="button"
-                                className="authSubmit"
-                                onClick={() => void updateUserRole(user.id, 'Moderator')}
-                                disabled={adminBusy || user.role === 'Moderator'}
-                              >
-                                Set Moderator
-                              </button>
+                              {user.role === 'Moderator' ? (
+                                <button
+                                  type="button"
+                                  className="authSecondaryBtn"
+                                  onClick={() => void updateUserRole(user.id, 'User')}
+                                  disabled={adminBusy}
+                                >
+                                  Set User
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="authSubmit"
+                                  onClick={() => void updateUserRole(user.id, 'Moderator')}
+                                  disabled={adminBusy}
+                                >
+                                  Set Moderator
+                                </button>
+                              )}
                             </div>
                           </article>
                         ))}
@@ -2669,11 +3006,11 @@ function App() {
                             ) : (
                               <p className="adminDocPreviewPlaceholder">Preview will appear when document is loaded.</p>
                             )}
+                          </div>
+                          <div className="adminActions adminActionsColumn">
                             <button type="button" className="authSecondaryBtn" onClick={() => void openAdminDocument(request.id)}>
                               Open document
                             </button>
-                          </div>
-                          <div className="adminActions adminActionsColumn">
                             <button type="button" className="authSubmit" onClick={() => void processVerificationRequest(request.id, 'approve')} disabled={adminBusy}>
                               Approve
                             </button>
@@ -2984,8 +3321,14 @@ function App() {
           </div>
         </div>
       )}
-      {profileMessage && <div className="profileToast">{profileMessage}</div>}
-      {betPlacementMessage && <div className="profileToast betToast">{betPlacementMessage}</div>}
+      {(profileMessage || moderatorMessage || adminMessage || betPlacementMessage) && (
+        <div className="toastStack">
+          {profileMessage && <div className="profileToast">{profileMessage}</div>}
+          {moderatorMessage && <div className="profileToast moderatorToast">{moderatorMessage}</div>}
+          {adminMessage && <div className="profileToast adminToast">{adminMessage}</div>}
+          {betPlacementMessage && <div className="profileToast betToast">{betPlacementMessage}</div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -3093,7 +3436,6 @@ function calcTotalVolume(bets: BetDto[]): string {
 
 function createEmptyModeratorForm(): ManageSportEventRequest {
   return {
-    externalId: '',
     homeTeam: '',
     awayTeam: '',
     eventDate: new Date().toISOString(),
@@ -3107,6 +3449,25 @@ function createEmptyModeratorForm(): ManageSportEventRequest {
     matchMinute: null,
   };
 }
+
+const MODERATOR_TOURNAMENT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'soccer_epl', label: 'English Premier League' },
+  { value: 'soccer_uefa_champs_league', label: 'UEFA Champions League' },
+  { value: 'soccer_spain_la_liga', label: 'Spain La Liga' },
+  { value: 'soccer_italy_serie_a', label: 'Italy Serie A' },
+  { value: 'soccer_germany_bundesliga', label: 'Germany Bundesliga' },
+  { value: 'soccer_france_ligue_one', label: 'France Ligue 1' },
+  { value: 'basketball_nba', label: 'NBA' },
+  { value: 'tennis_atp', label: 'ATP Tour' },
+];
+
+const MATCH_PHASE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'NS', label: 'Not started' },
+  { value: '1H', label: 'First half' },
+  { value: 'HT', label: 'Halftime' },
+  { value: '2H', label: 'Second half' },
+  { value: 'FT', label: 'Finished' },
+];
 
 function parseNumberOrNull(value: string): number | null {
   if (!value.trim()) {
@@ -3131,6 +3492,14 @@ function fromDateTimeLocalValue(localValue: string): string {
   }
   const date = new Date(localValue);
   return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
+function toDateInputValue(date: Date): string {
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
 }
 
 function mapEventToModeratorForm(event: SportEventDto): ManageSportEventRequest {

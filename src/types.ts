@@ -18,7 +18,7 @@ export interface SportEventDto {
 }
 
 export interface ManageSportEventRequest {
-  externalId: string;
+  externalId?: string;
   homeTeam: string;
   awayTeam: string;
   eventDate: string;
@@ -91,6 +91,25 @@ export interface BetDto {
   settledAt?: string | null;
   createdAt: string;
   legs: BetLegDto[];
+}
+
+export interface BetAnalyticsPointDto {
+  dayUtc: string;
+  betsCount: number;
+  stakeSum: number;
+  payoutSum: number;
+  net: number;
+}
+
+export interface BetAnalyticsDto {
+  fromUtc: string;
+  toUtc: string;
+  totalBets: number;
+  totalStake: number;
+  totalPayout: number;
+  net: number;
+  winRatePercent: number;
+  points: BetAnalyticsPointDto[];
 }
 
 export interface AdminVerificationRequestDto {
