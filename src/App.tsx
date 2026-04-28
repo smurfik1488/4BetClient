@@ -72,6 +72,8 @@ function isIgnorableSignalRStartError(error: unknown): boolean {
   );
 }
 
+const PUSH_PREF_KEY = 'push_notifications_enabled';
+
 function App() {
   const [token, setToken] = useState<string | null>(() => getToken());
   const [authView, setAuthView] = useState<'welcome' | 'form'>('welcome');
@@ -83,6 +85,7 @@ function App() {
   const [lastName, setLastName] = useState('');
   const [birthday, setBirthday] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
+  const [pushEnabled, setPushEnabled] = useState<boolean>(() => localStorage.getItem(PUSH_PREF_KEY) === '1');
   const [authErrors, setAuthErrors] = useState<Record<string, string>>({});
   const [pendingVerificationToken, setPendingVerificationToken] = useState<string | null>(null);
   const [verificationDocument, setVerificationDocument] = useState<File | null>(null);
@@ -163,6 +166,21 @@ function App() {
   const eventsRef = useRef<SportEventDto[]>([]);
   const verificationDecisionShownRef = useRef(false);
   eventsRef.current = events;
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      return;
+    }
+    const saved = localStorage.getItem(PUSH_PREF_KEY) === '1';
+    if (saved && Notification.permission === 'granted') {
+      setPushEnabled(true);
+      return;
+    }
+    if (saved && Notification.permission !== 'granted') {
+      localStorage.setItem(PUSH_PREF_KEY, '0');
+      setPushEnabled(false);
+    }
+  }, []);
 
   const scheduleMatchFlashes = useCallback((flashes: Array<{ id: string; kind: 'goal' | 'event' }>) => {
     if (flashes.length === 0) {
@@ -739,16 +757,26 @@ function App() {
         return next;
       });
       setStatus('Bet accepted');
+      showPushNotification('Bet accepted', `Stake: $${Number(bet.stake).toFixed(2)} | Odds: x${Number(bet.combinedOdds).toFixed(2)}`);
       void refreshWallet();
     });
 
     connection.on(realtimeEvents.betSettled, (update: { betId: string; status: string; settledPayout?: number }) => {
+      const settledStatus = mapBetStatus(update.status);
       setMyBets((prev) =>
         prev.map((betRow) =>
-          betRow.id === update.betId ? { ...betRow, status: mapBetStatus(update.status), settledPayout: update.settledPayout } : betRow,
+          betRow.id === update.betId ? { ...betRow, status: settledStatus, settledPayout: update.settledPayout } : betRow,
         ),
       );
       setStatus('Bet settled');
+      const payout = update.settledPayout != null ? ` Виплата: $${Number(update.settledPayout).toFixed(2)}.` : '';
+      if (settledStatus === 1) {
+        showPushNotification('Ставка зіграла', `Вітаємо! Твоя ставка виграла.${payout}`);
+      } else if (settledStatus === 2) {
+        showPushNotification('Ставка не зіграла', `На жаль, ця ставка програла.${payout}`);
+      } else {
+        showPushNotification('Ставку розраховано', `Статус: ${mapStatusLabel(settledStatus)}.${payout}`);
+      }
       void refreshWallet();
     });
 
@@ -1587,6 +1615,65 @@ function App() {
     }
     setAdminDocumentModal(null);
     setStatus('Logged out');
+  }
+
+  async function enablePushNotifications() {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setProfileError('Push notifications are not supported in this browser.');
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      setProfileError('Notification permission was not granted.');
+      return;
+    }
+
+    localStorage.setItem(PUSH_PREF_KEY, '1');
+    setPushEnabled(true);
+    setProfileError(null);
+    setProfileMessage('Push notifications enabled.');
+    showPushNotification('4Bet', 'Push notifications are active now.');
+  }
+
+  function disablePushNotifications() {
+    localStorage.setItem(PUSH_PREF_KEY, '0');
+    setPushEnabled(false);
+    setProfileMessage('Push notifications disabled.');
+  }
+
+  function showPushNotification(title: string, body: string) {
+    if (!pushEnabled || typeof window === 'undefined' || !('Notification' in window)) {
+      return;
+    }
+    if (Notification.permission !== 'granted') {
+      return;
+    }
+
+    const notification = new Notification(title, {
+      body,
+      tag: '4bet-live',
+    });
+    window.setTimeout(() => notification.close(), 6000);
+  }
+
+  function testPushNotification() {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setProfileError('Push notifications are not supported in this browser.');
+      return;
+    }
+    if (!pushEnabled) {
+      setProfileError('Enable push notifications first.');
+      return;
+    }
+    if (Notification.permission !== 'granted') {
+      setProfileError('Browser notification permission is blocked. Allow it in site settings.');
+      return;
+    }
+
+    setProfileError(null);
+    showPushNotification('4Bet test', 'Test notification delivered.');
+    setProfileMessage('Test notification sent.');
   }
 
   function goHomeFromSidebar() {
@@ -2756,6 +2843,18 @@ function App() {
                         setProfileNewPassword('');
                       }}>Close password window</button>
                     )}
+                    {!pushEnabled ? (
+                      <button type="button" className="authSecondaryBtn" onClick={() => void enablePushNotifications()}>
+                        Enable push notifications
+                      </button>
+                    ) : (
+                      <button type="button" className="authSecondaryBtn" onClick={disablePushNotifications}>
+                        Disable push notifications
+                      </button>
+                    )}
+                    <button type="button" className="authSecondaryBtn" onClick={testPushNotification}>
+                      Test notification
+                    </button>
                     <button type="button" className="logoutBtn profileLogoutBtn" onClick={logout}>Log out</button>
                   </div>
                   {profileError && !isChangingPassword && <p className="profileError">{profileError}</p>}
@@ -3699,6 +3798,9 @@ function formatMatchPhaseLabel(status: string | null | undefined): string {
 function formatDashboardPhaseLabel(event: SportEventDto): string {
   const normalized = normalizeMatchStatus(event.matchStatus);
   if (normalized === 'NS' || normalized === 'NOTSTARTED') {
+    if (isLiveOrInProgress(event.eventDate, event.matchStatus)) {
+      return 'Live';
+    }
     const startAt = new Date(event.eventDate);
     if (!Number.isNaN(startAt.getTime())) {
       return startAt.toLocaleString([], {
@@ -3766,6 +3868,16 @@ function formatMatchClock(event: SportEventDto, nowMs: number): string {
     return '';
   }
   if (normalizedStatus === 'NS') {
+    if (isLiveOrInProgress(event.eventDate, event.matchStatus)) {
+      const eventStartMs = new Date(event.eventDate).getTime();
+      if (!Number.isNaN(eventStartMs)) {
+        const elapsedSeconds = Math.max(0, Math.floor((nowMs - eventStartMs) / 1000));
+        const minutes = Math.floor(elapsedSeconds / 60);
+        const seconds = elapsedSeconds % 60;
+        return `${minutes}:${String(seconds).padStart(2, '0')}`;
+      }
+      return '0:00';
+    }
     const startTime = new Date(event.eventDate);
     if (!Number.isNaN(startTime.getTime())) {
       return startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
