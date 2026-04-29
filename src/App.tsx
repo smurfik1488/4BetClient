@@ -12,6 +12,7 @@ import type {
   ManageSportEventRequest,
   PlaceBetRequest,
   SportEventDto,
+  TeamImportResultDto,
   UpdateProfileRequest,
   UpdateAvatarRequest,
   UserProfileDto,
@@ -143,6 +144,7 @@ function App() {
   const contentLayoutRef = useRef<HTMLDivElement | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const verifyUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const moderatorTeamsImportInputRef = useRef<HTMLInputElement | null>(null);
   const [eventHighlights, setEventHighlights] = useState<Record<string, 'goal' | 'event'>>({});
   const [clockNowMs, setClockNowMs] = useState(() => Date.now());
   const [moderatorForm, setModeratorForm] = useState<ManageSportEventRequest>(() => createEmptyModeratorForm());
@@ -150,6 +152,9 @@ function App() {
   const [isModeratorEditorOpen, setIsModeratorEditorOpen] = useState(false);
   const [moderatorBusy, setModeratorBusy] = useState(false);
   const [moderatorMessage, setModeratorMessage] = useState<string | null>(null);
+  const [moderatorTeamsJsonFile, setModeratorTeamsJsonFile] = useState<File | null>(null);
+  const [moderatorImportBusy, setModeratorImportBusy] = useState(false);
+  const [moderatorImportResult, setModeratorImportResult] = useState<TeamImportResultDto | null>(null);
   const [adminRequests, setAdminRequests] = useState<AdminVerificationRequestDto[]>([]);
   const [adminUsers, setAdminUsers] = useState<AdminUserDto[]>([]);
   const [adminDocumentPreviews, setAdminDocumentPreviews] = useState<Record<string, string>>({});
@@ -441,6 +446,13 @@ function App() {
     }
   }
 
+  function clearModeratorTeamsImportFile() {
+    setModeratorTeamsJsonFile(null);
+    if (moderatorTeamsImportInputRef.current) {
+      moderatorTeamsImportInputRef.current.value = '';
+    }
+  }
+
   async function loadInitialData() {
     setIsEventsLoading(true);
     const eventsRes = await Promise.allSettled([
@@ -682,6 +694,41 @@ function App() {
       setModeratorMessage('Timer sync failed.');
     } finally {
       setModeratorBusy(false);
+    }
+  }
+
+  async function importModeratorTeamsFromJson() {
+    if (!moderatorTeamsJsonFile) {
+      setModeratorMessage('Select a JSON file first.');
+      return;
+    }
+
+    setModeratorImportBusy(true);
+    setModeratorMessage(null);
+    setModeratorImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', moderatorTeamsJsonFile);
+      const response = await api.post<TeamImportResultDto>('/sport/teams/import-json', formData);
+
+      const result = response.data;
+      setModeratorImportResult(result);
+      setModeratorMessage(
+        `Teams imported. Added: ${result.insertedRows}, existing: ${result.existingRows}, invalid: ${result.invalidRows}.`,
+      );
+      clearModeratorTeamsImportFile();
+      await refreshActiveEventsSnapshot();
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        localStorage.removeItem('token');
+        setToken(null);
+        return;
+      }
+
+      const data = axios.isAxiosError(error) ? (error.response?.data as { message?: string; title?: string } | undefined) : undefined;
+      setModeratorMessage(data?.message ?? data?.title ?? 'Unable to import teams JSON.');
+    } finally {
+      setModeratorImportBusy(false);
     }
   }
 
@@ -2642,22 +2689,105 @@ function App() {
                         <div className="statCard"><span>Win rate</span><strong>{betAnalytics.winRatePercent.toFixed(1)}%</strong></div>
                       </div>
                       <div className="analyticsBarsWrap" role="img" aria-label="Daily bets trend chart">
-                        {betAnalytics.points.length === 0 ? (
-                          <p className="historyEmptyState">No analytics data in selected range.</p>
-                        ) : (
-                          <div className="analyticsBars">
-                            {betAnalytics.points.map((point) => (
-                              <div key={point.dayUtc} className="analyticsBarItem">
-                                <span
-                                  className="analyticsBar"
-                                  style={{ height: `${Math.max(8, (point.betsCount / Math.max(...betAnalytics.points.map((p) => p.betsCount), 1)) * 110)}px` }}
-                                  title={`${new Date(point.dayUtc).toLocaleDateString()}: ${point.betsCount} bets`}
-                                />
-                                <small>{new Date(point.dayUtc).toLocaleDateString([], { day: '2-digit', month: '2-digit' })}</small>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        <div className="analyticsLineChartWrap">
+                          {(() => {
+                            const start = new Date(`${historyFrom}T00:00:00Z`);
+                            const end = new Date(`${historyTo}T00:00:00Z`);
+                            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+                              return <p className="historyEmptyState">Pick a valid date range.</p>;
+                            }
+
+                            const dayKeys: string[] = [];
+                            const cursor = new Date(start);
+                            while (cursor <= end && dayKeys.length < 180) {
+                              dayKeys.push(cursor.toISOString().slice(0, 10));
+                              cursor.setUTCDate(cursor.getUTCDate() + 1);
+                            }
+                            if (dayKeys.length === 0) {
+                              return <p className="historyEmptyState">No dates in selected range.</p>;
+                            }
+
+                            const points = betAnalytics.points ?? [];
+                            const placedByDay = new Map<string, number>(points.map((point) => [toApiDayKey(point.dayUtc), Number(point.betsCount) || 0]));
+                            const wonByDay = new Map<string, number>(points.map((point) => [toApiDayKey(point.dayUtc), Number(point.wonCount) || 0]));
+                            const lostByDay = new Map<string, number>(points.map((point) => [toApiDayKey(point.dayUtc), Number(point.lostCount) || 0]));
+
+                            const placedSeries = dayKeys.map((day) => placedByDay.get(day) ?? 0);
+                            const wonSeries = dayKeys.map((day) => wonByDay.get(day) ?? 0);
+                            const lostSeries = dayKeys.map((day) => lostByDay.get(day) ?? 0);
+                            const hasAnyData = [...placedSeries, ...wonSeries, ...lostSeries].some((value) => value > 0);
+                            if (!hasAnyData) {
+                              return <p className="historyEmptyState">No bets or settled outcomes for selected period yet.</p>;
+                            }
+
+                            const chartWidth = Math.max(
+                              480,
+                              dayKeys.length * (dayKeys.length > 45 ? 24 : dayKeys.length > 24 ? 28 : 34),
+                            );
+                            const chartHeight = 220;
+                            const padLeft = 42;
+                            const padRight = 14;
+                            const padTop = 14;
+                            const padBottom = 28;
+                            const innerWidth = Math.max(1, chartWidth - padLeft - padRight);
+                            const innerHeight = Math.max(1, chartHeight - padTop - padBottom);
+                            const maxY = Math.max(1, ...placedSeries, ...wonSeries, ...lostSeries);
+                            const gridSteps = Math.min(6, Math.max(3, maxY + 1));
+                            const labelStep = dayKeys.length > 20 ? 4 : dayKeys.length > 12 ? 3 : dayKeys.length > 8 ? 2 : 1;
+
+                            const xFor = (idx: number) => (
+                              padLeft + (dayKeys.length === 1 ? innerWidth / 2 : (idx / (dayKeys.length - 1)) * innerWidth)
+                            );
+                            const yFor = (value: number) => padTop + innerHeight - (value / maxY) * innerHeight;
+                            const toPolyline = (series: number[]) => series.map((value, idx) => `${xFor(idx)},${yFor(value)}`).join(' ');
+
+                            return (
+                              <>
+                                <div className="analyticsLegend" aria-hidden="true">
+                                  <span className="analyticsLegendItem analyticsLegendItem--placed">Placed</span>
+                                  <span className="analyticsLegendItem analyticsLegendItem--won">Won</span>
+                                  <span className="analyticsLegendItem analyticsLegendItem--lost">Lost</span>
+                                </div>
+                                <svg
+                                  className="analyticsLineChart analyticsLineChart--single"
+                                  viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                                  preserveAspectRatio="none"
+                                  style={{ width: `max(100%, ${chartWidth}px)` }}
+                                >
+                                  {Array.from({ length: gridSteps }, (_, gridIdx) => {
+                                    const value = Math.round((maxY * gridIdx) / (gridSteps - 1));
+                                    const y = yFor(value);
+                                    return (
+                                      <g key={`grid-${gridIdx}`}>
+                                        <line className="analyticsGridLine" x1={padLeft} y1={y} x2={chartWidth - padRight} y2={y} />
+                                        <text className="analyticsAxisYLabel" x={padLeft - 8} y={y + 3}>{value}</text>
+                                      </g>
+                                    );
+                                  })}
+                                  <polyline className="analyticsLinePath analyticsLinePath--placed" points={toPolyline(placedSeries)} />
+                                  <polyline className="analyticsLinePath analyticsLinePath--won" points={toPolyline(wonSeries)} />
+                                  <polyline className="analyticsLinePath analyticsLinePath--lost" points={toPolyline(lostSeries)} />
+
+                                  {dayKeys.map((dayKey, idx) => {
+                                    const x = xFor(idx);
+                                    return (
+                                      <g key={dayKey}>
+                                        <circle className="analyticsLineDot analyticsLineDot--placed" cx={x} cy={yFor(placedSeries[idx])} r={2.7} />
+                                        <circle className="analyticsLineDot analyticsLineDot--won" cx={x} cy={yFor(wonSeries[idx])} r={2.7} />
+                                        <circle className="analyticsLineDot analyticsLineDot--lost" cx={x} cy={yFor(lostSeries[idx])} r={2.7} />
+                                        {(idx % labelStep === 0 || idx === dayKeys.length - 1) ? (
+                                          <text className="analyticsAxisXLabel" x={x} y={chartHeight - 8}>
+                                            {dayKey.slice(5).replace('-', '.')}
+                                          </text>
+                                        ) : null}
+                                      </g>
+                                    );
+                                  })}
+                                </svg>
+                              </>
+                            );
+                          })()}
+                        </div>
                       </div>
                     </>
                   )}
@@ -2887,6 +3017,75 @@ function App() {
                     </button>
                   </div>
                 </header>
+                <section className="adminEditorCard moderatorImportCard">
+                  <div className="moderatorImportHeader">
+                    <div>
+                      <h3>Import teams from JSON</h3>
+                      <p className="adminFormHint">
+                        Upload a plain array of team names or an object with <code>teams</code>. Supported fields per row:
+                        {' '}
+                        <code>name</code>, <code>teamName</code>, <code>clubName</code>, <code>logoUrl</code>.
+                      </p>
+                    </div>
+                  </div>
+                  <input
+                    ref={moderatorTeamsImportInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    className="moderatorImportInput"
+                    onChange={(e) => {
+                      setModeratorTeamsJsonFile(e.target.files?.[0] ?? null);
+                      setModeratorImportResult(null);
+                    }}
+                  />
+                  <div className="moderatorImportControls">
+                    <button
+                      type="button"
+                      className="authSecondaryBtn"
+                      onClick={() => moderatorTeamsImportInputRef.current?.click()}
+                      disabled={moderatorImportBusy}
+                    >
+                      Choose JSON
+                    </button>
+                    <button
+                      type="button"
+                      className="authSubmit"
+                      onClick={() => void importModeratorTeamsFromJson()}
+                      disabled={!moderatorTeamsJsonFile || moderatorImportBusy}
+                    >
+                      {moderatorImportBusy ? 'Importing...' : 'Import teams'}
+                    </button>
+                    {moderatorTeamsJsonFile ? (
+                      <span className="moderatorImportFileName">{moderatorTeamsJsonFile.name}</span>
+                    ) : (
+                      <span className="moderatorImportPlaceholder">No file selected</span>
+                    )}
+                  </div>
+                  {moderatorImportResult && (
+                    <div className="moderatorImportStats" aria-live="polite">
+                      <div className="moderatorImportStat">
+                        <span>Total rows</span>
+                        <strong>{moderatorImportResult.totalRows}</strong>
+                      </div>
+                      <div className="moderatorImportStat">
+                        <span>Unique rows</span>
+                        <strong>{moderatorImportResult.uniqueRows}</strong>
+                      </div>
+                      <div className="moderatorImportStat">
+                        <span>Inserted</span>
+                        <strong>{moderatorImportResult.insertedRows}</strong>
+                      </div>
+                      <div className="moderatorImportStat">
+                        <span>Existing</span>
+                        <strong>{moderatorImportResult.existingRows}</strong>
+                      </div>
+                      <div className="moderatorImportStat">
+                        <span>Invalid</span>
+                        <strong>{moderatorImportResult.invalidRows}</strong>
+                      </div>
+                    </div>
+                  )}
+                </section>
                 <div className="adminList">
                   {events.map((event) => (
                     <article className="adminItemCard" key={event.id}>
@@ -3599,6 +3798,14 @@ function toDateInputValue(date: Date): string {
   }
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 10);
+}
+
+function toApiDayKey(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value.slice(0, 10);
+  }
+  return parsed.toISOString().slice(0, 10);
 }
 
 function mapEventToModeratorForm(event: SportEventDto): ManageSportEventRequest {

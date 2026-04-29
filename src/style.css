@@ -1969,20 +1969,8 @@ input:focus-visible {
   .sportsMatchesList h3 {
     text-align: left;
   }
-
-  .historyCardHead {
-    grid-template-columns: 1fr auto auto;
-    grid-template-areas:
-      "date status chevron"
-      "stake odds chevron";
-  }
-
-  .historyCardDate { grid-area: date; }
-  .historyCardStatus { grid-area: status; justify-self: start; }
-  .historyCardStake { grid-area: stake; }
-  .historyCardOdds { grid-area: odds; }
-  .historyCardChevron { grid-area: chevron; align-self: center; }
 }
+
 
 .tableWrap table {
   width: 100%;
@@ -2001,6 +1989,7 @@ input:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .historyAnalyticsCard {
@@ -2011,6 +2000,7 @@ input:focus-visible {
   margin-bottom: 12px;
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .historyAnalyticsHeader {
@@ -2018,6 +2008,7 @@ input:focus-visible {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .historyAnalyticsHeader h3 {
@@ -2025,10 +2016,12 @@ input:focus-visible {
 }
 
 .historyFilters {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr)) auto;
   align-items: end;
   gap: 8px;
-  flex-wrap: wrap;
+  min-width: 0;
+  width: min(100%, 520px);
 }
 
 .historyFilters label {
@@ -2036,6 +2029,7 @@ input:focus-visible {
   gap: 4px;
   color: #9eb0d7;
   font-size: 12px;
+  min-width: 0;
 }
 
 .historyFilters input[type="date"] {
@@ -2044,16 +2038,20 @@ input:focus-visible {
   background: #0f1528;
   color: #f3f6ff;
   padding: 8px 10px;
+  width: 100%;
+  min-width: 0;
 }
 
 .historyApplyBtn {
   width: auto;
   margin-top: 0;
   min-width: 92px;
+  align-self: end;
 }
 
 .historyAnalyticsStats {
   margin-bottom: 0;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .analyticsBarsWrap {
@@ -2061,6 +2059,7 @@ input:focus-visible {
   border-radius: 10px;
   background: #0f162c;
   padding: 10px;
+  min-width: 0;
 }
 
 .analyticsBars {
@@ -2091,6 +2090,115 @@ input:focus-visible {
   font-size: 10px;
 }
 
+.analyticsLineChartWrap {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.analyticsLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.analyticsLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #b6c6eb;
+  font-size: 12px;
+}
+
+.analyticsLegendItem::before {
+  content: "";
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: #7fa1ff;
+}
+
+.analyticsLegendItem--placed::before {
+  background: #3ecfca;
+}
+
+.analyticsLegendItem--won::before {
+  background: #52d273;
+}
+
+.analyticsLegendItem--lost::before {
+  background: #ff6b7e;
+}
+
+.analyticsLineChart {
+  display: block;
+  width: 100%;
+  min-width: 220px;
+  height: 140px;
+}
+
+.analyticsLineChart--single {
+  min-width: 0;
+  height: clamp(180px, 42vw, 220px);
+}
+
+.analyticsLinePath {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.analyticsLineDot {
+  fill: #4a8dff;
+  stroke: #d9e6ff;
+  stroke-width: 1.25;
+}
+
+.analyticsLineDot--placed {
+  fill: #3ecfca;
+}
+
+.analyticsLinePath--placed {
+  stroke: #3ecfca;
+}
+
+.analyticsLineDot--won {
+  fill: #52d273;
+}
+
+.analyticsLinePath--won {
+  stroke: #52d273;
+}
+
+.analyticsLineDot--lost {
+  fill: #ff6b7e;
+}
+
+.analyticsLinePath--lost {
+  stroke: #ff6b7e;
+}
+
+.analyticsGridLine {
+  stroke: #2a3352;
+  stroke-width: 1;
+}
+
+.analyticsAxisYLabel {
+  fill: #8397c8;
+  font-size: 11px;
+  text-anchor: end;
+}
+
+.analyticsAxisXLabel {
+  fill: #91a5d4;
+  font-size: 10px;
+  text-anchor: middle;
+}
+
 .historyEmptyState {
   border: 1px dashed #334067;
   border-radius: 10px;
@@ -2104,6 +2212,7 @@ input:focus-visible {
   border-radius: 12px;
   overflow: hidden;
   background: linear-gradient(145deg, #111934, #0d1429);
+  min-width: 0;
 }
 
 .historyCardExpanded {
@@ -2114,7 +2223,7 @@ input:focus-visible {
 .historyCardHead {
   width: 100%;
   display: grid;
-  grid-template-columns: 1.6fr auto auto auto auto;
+  grid-template-columns: minmax(0, 1.6fr) auto auto auto auto;
   gap: 10px;
   align-items: center;
   border: none;
@@ -2122,6 +2231,11 @@ input:focus-visible {
   background: transparent;
   padding: 12px;
   text-align: left;
+  min-width: 0;
+}
+
+.historyCardHead > * {
+  min-width: 0;
 }
 
 .historyCardHead:hover {
@@ -2131,6 +2245,7 @@ input:focus-visible {
 .historyCardDate {
   color: #9cb0de;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .historyCardStatus {
@@ -2139,6 +2254,8 @@ input:focus-visible {
   border-radius: 999px;
   border: 1px solid #3a4c7b;
   color: #d9e6ff;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .historyCardStatus.status-won {
@@ -2168,6 +2285,7 @@ input:focus-visible {
   align-items: flex-end;
   line-height: 1.1;
   gap: 2px;
+  min-width: 0;
 }
 
 .historyCardStake small,
@@ -2184,6 +2302,7 @@ input:focus-visible {
   font-size: 16px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .historyCardChevron {
@@ -2197,6 +2316,7 @@ input:focus-visible {
   padding: 12px;
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .historyCardMetaGrid {
@@ -2233,6 +2353,7 @@ input:focus-visible {
   justify-content: space-between;
   align-items: flex-start;
   gap: 8px;
+  min-width: 0;
 }
 
 .historyLegText {
@@ -2267,8 +2388,83 @@ input:focus-visible {
     width: 100%;
   }
 
+  .historyAnalyticsStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .historyCardMetaGrid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 920px) {
+  .historyCardHead {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "date chevron"
+      "status status"
+      "stake odds";
+    align-items: start;
+  }
+
+  .historyCardDate { grid-area: date; }
+  .historyCardStatus { grid-area: status; justify-self: start; }
+  .historyCardStake { grid-area: stake; align-items: flex-start; }
+  .historyCardOdds { grid-area: odds; }
+  .historyCardChevron { grid-area: chevron; align-self: start; justify-self: end; }
+}
+
+@media (max-width: 640px) {
+  .historyAnalyticsHeader {
+    align-items: stretch;
+  }
+
+  .historyFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .historyFilters label,
+  .historyApplyBtn {
+    width: 100%;
+  }
+
+  .historyCardHead {
+    gap: 8px;
+  }
+
+  .historyCardOdds {
+    align-items: flex-start;
+  }
+
+  .historyLegRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .historyLegOdds {
+    align-self: flex-start;
+    font-size: 18px;
+  }
+
+  .historyAnalyticsStats {
+    grid-template-columns: 1fr;
+  }
+
+  .historyAnalyticsCard {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .analyticsBarsWrap {
+    padding: 8px;
+  }
+
+  .analyticsLineChart--single {
+    height: 180px;
+  }
+
+  .analyticsLegendItem {
+    font-size: 11px;
   }
 }
 
@@ -2527,6 +2723,84 @@ input:focus-visible {
 
 .moderatorModalCard {
   width: min(980px, 100%);
+}
+
+.moderatorImportCard {
+  gap: 14px;
+}
+
+.moderatorImportHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.moderatorImportInput {
+  display: none;
+}
+
+.moderatorImportControls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.moderatorImportControls .authSecondaryBtn,
+.moderatorImportControls .authSubmit {
+  width: auto;
+  margin-top: 0;
+}
+
+.moderatorImportFileName,
+.moderatorImportPlaceholder {
+  min-width: 0;
+  max-width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.moderatorImportFileName {
+  border: 1px dashed #365082;
+  background: #0f1528;
+  color: #d9e6ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.moderatorImportPlaceholder {
+  border: 1px dashed #2b3554;
+  background: #10172f;
+  color: #8ea2ca;
+}
+
+.moderatorImportStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.moderatorImportStat {
+  border: 1px solid #2d3b63;
+  border-radius: 12px;
+  background: #10172f;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.moderatorImportStat span {
+  color: #9db0d8;
+  font-size: 12px;
+}
+
+.moderatorImportStat strong {
+  color: #eef4ff;
+  font-size: 22px;
+  line-height: 1;
 }
 
 .adminFormHint {
@@ -2819,6 +3093,17 @@ input:focus-visible {
 }
 
 @media (max-width: 680px) {
+  .moderatorImportControls {
+    align-items: stretch;
+  }
+
+  .moderatorImportControls .authSecondaryBtn,
+  .moderatorImportControls .authSubmit,
+  .moderatorImportFileName,
+  .moderatorImportPlaceholder {
+    width: 100%;
+  }
+
   .adminItemCard--compact {
     grid-template-columns: 1fr;
   }

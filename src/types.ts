@@ -96,6 +96,8 @@ export interface BetDto {
 export interface BetAnalyticsPointDto {
   dayUtc: string;
   betsCount: number;
+  wonCount: number;
+  lostCount: number;
   stakeSum: number;
   payoutSum: number;
   net: number;
@@ -131,4 +133,12 @@ export interface AdminUserDto {
   role: 'User' | 'Moderator' | 'Admin' | string;
   isEmailVerified: boolean;
   isBdVerified: boolean;
+}
+
+export interface TeamImportResultDto {
+  totalRows: number;
+  uniqueRows: number;
+  insertedRows: number;
+  existingRows: number;
+  invalidRows: number;
 }
