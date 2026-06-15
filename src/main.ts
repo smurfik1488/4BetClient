@@ -5,4 +5,4 @@ import './style.css';
 
 ReactDOM.createRoot(document.getElementById('app')!).render(
   React.createElement(React.StrictMode, null, React.createElement(App)),
-);
+); 
