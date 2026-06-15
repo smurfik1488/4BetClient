@@ -1,0 +1,17 @@
+{
+  "routes": [
+    {
+      "route": "/*",
+      "rewrite": "/index.html",
+      "statusCode": 200
+    },
+    {
+      "route": "/api/*",
+      "rewrite": "/api/*"
+    }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/img/*", "/css/*", "/js/*", "/favicon.ico"]
+  }
+}
