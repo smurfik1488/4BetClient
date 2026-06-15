@@ -1,6 +1,24 @@
 {
-  "navigationFallback": {
-    "rewrite": "/index.html",
-    "exclude": ["/img/*", "/css/*", "/js/*", "/*.json", "/*.txt", "/favicon.ico"]
-  }
+  "routes": [
+    {
+      "route": "/assets/*",
+      "serve": "/assets/*"
+    },
+    {
+      "route": "/*.svg",
+      "serve": "/*.svg"
+    },
+    {
+      "route": "/*.png",
+      "serve": "/*.png"
+    },
+    {
+      "route": "/api/*",
+      "serve": "/api/*"
+    },
+    {
+      "route": "/*",
+      "rewrite": "/index.html"
+    }
+  ]
 }
